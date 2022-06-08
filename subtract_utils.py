@@ -90,9 +90,12 @@ def plot_subtraction_comparison(raw_tensor, est_tensors, subtracted_tensors, dem
     plt.tight_layout()
     return fig, axs
 
-def run_subtraction_pipeline(pscs, I, L, demixer_checkpoint, **run_kwargs):
+def run_subtraction_pipeline(pscs, I, L, stim, demixer_checkpoint, no_op=False, **run_kwargs):
     # Run subtraction on all PSCs
-    est = subtractr.estimate_photocurrents_baseline(pscs, I, **run_kwargs)
+    if no_op:
+        est = np.zeros_like(pscs)
+    else:
+        est = subtractr.estimate_photocurrents_baseline(pscs, I, **run_kwargs)
     subtracted = pscs - est
 
     # load demixer checkpoint and demix
@@ -100,10 +103,10 @@ def run_subtraction_pipeline(pscs, I, L, demixer_checkpoint, **run_kwargs):
     demixed = util.denoise_pscs_in_batches(subtracted, demixer)
 
     # convert to tensors for easier plotting
-    raw_pscs_tensor = util.make_psc_tensor(pscs, I, L)
-    est_pscs_tensor = util.make_psc_tensor(est, I, L)
-    subtracted_pscs_tensor = util.make_psc_tensor(subtracted, I, L)
-    demixed_pscs_tensor = util.make_psc_tensor(demixed, I, L)
+    raw_pscs_tensor = util.make_psc_tensor_multispot(pscs, I, L, stim)
+    est_pscs_tensor = util.make_psc_tensor_multispot(est, I, L, stim)
+    subtracted_pscs_tensor = util.make_psc_tensor_multispot(subtracted, I, L, stim)
+    demixed_pscs_tensor = util.make_psc_tensor_multispot(demixed, I, L, stim)
 
     # make plot of spatial maps
     mean_map = traces_tensor_to_map(raw_pscs_tensor)

@@ -35,6 +35,7 @@ def parse_fit_options(argseq):
         default="/Users/Bantin/Documents/Columbia/Projects/2p-opto/circuit_mapping/demixers/nwd_ee_ChroME1.ckpt")
 
     # opsin subtract args
+    parser.add_argument('--subtract-pc', action='store_true', default=True)
     parser.add_argument('--separate-by-power', action='store_true', default=False)
     parser.add_argument('--rank', type=int, default=1)
 
@@ -51,38 +52,23 @@ if __name__ == "__main__":
     dat = np.load(args.dataset_path, allow_pickle='True')
 
     pscs, I, L = dat['psc'], dat['I'], dat['L']
-
-
-    results = subtract_utils.run_subtraction_pipeline(pscs, I, L,
-        args.demixer_checkpoint, separate_by_power=False, rank=1)
     dset_name = os.path.basename(args.dataset_path).split('.')[0]
 
+    # Optionally run photocurrent subtraction.
+    # if no_op is True, the subtraction is a no_op and the following call
+    # simply populates the results dictionary.
+    no_op = (not args.subtract_pc)
+    results = subtract_utils.run_subtraction_pipeline(pscs, I, L,
+        args.demixer_checkpoint, separate_by_power=False, rank=1, no_op=no_op)
+
     num_planes = results['raw_map'].shape[-1]
-    fig2 = plt.figure(figsize=(4 * 3, num_planes), dpi=300, facecolor='white')
 
-    util.plot_multi_means(fig2,
-        [results['raw_map'], results['subtracted_map'], results['demixed_map']], np.arange(num_planes),
-    #     map_names=['subtracted'],
-        cmaps=['magma', 'magma', 'magma'],
-        # cbar_labels=['EPSQ (nC)'],
-        # zlabels=['subtr', 'demix'],
-        map_names=['raw', 'subtr', 'demix'],
-        vranges=[(0,15), (0,15), (0,10)],
-        powers=np.unique(I))
+    # For multispot data, stim_mat will be in the data struct
+    if 'stim_matrix' in dat:
+        stim_mat = dat['stim_matrix']
+    else:
+        stim_mat = util.make_stim_matrix_singlespot(I, L)
 
-    plt.savefig(dset_name + '_map_' + '_unconstrained_V_baseline' + '.png', bbox_inches='tight')
-
-    fig3, axs = subtract_utils.plot_subtraction_comparison(
-            results['raw_tensor'],
-            [results['est_tensor']],
-            [results['subtracted_tensor']],
-            [results['demixed_tensor']],
-            powers=np.unique(I),
-            num_plots_per_power=2,
-    )
-    plt.savefig(dset_name + '_traces_' + '_unconstrained_V_baseline' + '.png', bbox_inches='tight')
-
-    stim_mat = util.make_stim_matrix_singlespot(I, L)
     N = stim_mat.shape[0]
     model = cm.Model(N)
     model.fit(results['demixed_matrix'],
@@ -97,6 +83,7 @@ if __name__ == "__main__":
 
     results['model'] = model
     results['I'] = I
+    results['L'] = L
     results['stim_mat'] = stim_mat
 
     # save args used to get the result

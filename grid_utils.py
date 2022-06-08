@@ -116,7 +116,7 @@ def get_max_hits(I, stim):
     return max
 
 
-def make_psc_tensor_multispot(psc, I, L, stim, num_rounds=3):
+def make_psc_tensor_multispot(psc, I, L, stim):
     '''
     Stack all observations into a PSC tensor of shape powers x height x width x trials x time.
     
@@ -154,16 +154,12 @@ def make_psc_tensor_multispot(psc, I, L, stim, num_rounds=3):
     psc_tensor = np.zeros((num_powers, len(xs), len(ys), len(zs), max_stims, timesteps)) + np.nan
     stim_inds = np.zeros((num_powers, len(xs), len(ys), len(zs)), dtype=int)
     
-    # Since for now we use the same holograms across all powers (each power is a different "round")
-    # we can just duplicate L and stack
-    L_full = np.tile(L, (num_rounds, 1, 1))
-
     for trial in range(num_trials):
         for spot in range(num_spots):
             powerloc_idx = ( p_map[I[trial]],
-                    x_map[L_full[trial, spot, 0]],
-                    y_map[L_full[trial, spot, 1]],
-                    z_map[L_full[trial, spot, 2]],
+                    x_map[L[trial, spot, 0]],
+                    y_map[L[trial, spot, 1]],
+                    z_map[L[trial, spot, 2]],
             )
             
             stim_idx = stim_inds[powerloc_idx]
@@ -295,8 +291,7 @@ def denoise_pscs_in_batches(psc, denoiser, batch_size=4096):
 
 def estimate_spike_waveforms(lam, den_psc):
     lr = Ridge(fit_intercept=False, alpha=1e-3)
-    lr.fit(((lam >= 0.5)).T, den_psc)
-#     lr.fit(lam.T, den_psc)
+    lr.fit(lam.T, den_psc)
     return lr.coef_.T
 
 def make_grid_latencies(grid_waveforms):
