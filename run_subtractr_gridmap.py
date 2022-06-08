@@ -54,21 +54,32 @@ if __name__ == "__main__":
     pscs, I, L = dat['psc'], dat['I'], dat['L']
     dset_name = os.path.basename(args.dataset_path).split('.')[0]
 
+    # if stim_matrix is available, we're working with multispot data.
+    # Reshape things accordingly. In the future, this should be moved to preprocessing.
+    # L should have shape (num_trials x num_spots x 3)
+    # I should have shape (num_trials,)
+    # Both single and multispot are treated the same -- so for singlespot data
+    # L will have shape (num_trials x 1 x 3)
+
+    if 'stim_matrix' in dat:
+        I = np.ravel(I.T)
+        L = np.tile(L, (3,1,1))
+        stim_mat = dat['stim_matrix']
+
+    else:
+        stim_mat = util.make_stim_matrix_singlespot(I, L)
+        L = L[:,None,:]
+
     # Optionally run photocurrent subtraction.
     # if no_op is True, the subtraction is a no_op and the following call
     # simply populates the results dictionary.
     no_op = (not args.subtract_pc)
-    results = subtract_utils.run_subtraction_pipeline(pscs, I, L,
+    results = subtract_utils.run_subtraction_pipeline(pscs, I, L, stim_mat,
         args.demixer_checkpoint, separate_by_power=False, rank=1, no_op=no_op)
 
     num_planes = results['raw_map'].shape[-1]
 
-    # For multispot data, stim_mat will be in the data struct
-    if 'stim_matrix' in dat:
-        stim_mat = dat['stim_matrix']
-    else:
-        stim_mat = util.make_stim_matrix_singlespot(I, L)
-
+    # Run CAVIaR algorithm
     N = stim_mat.shape[0]
     model = cm.Model(N)
     model.fit(results['demixed_matrix'],
