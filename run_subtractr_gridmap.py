@@ -60,10 +60,10 @@ if __name__ == "__main__":
     # I should have shape (num_trials,)
     # Both single and multispot are treated the same -- so for singlespot data
     # L will have shape (num_trials x 1 x 3)
-
+    num_powers = len(np.unique(I))
     if 'stim_matrix' in dat:
         I = np.ravel(I.T)
-        L = np.tile(L, (3,1,1))
+        L = np.tile(L, (num_powers,1,1))
         stim_mat = dat['stim_matrix']
 
     else:
