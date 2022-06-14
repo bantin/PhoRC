@@ -11,35 +11,33 @@ import matplotlib.pyplot as plt
 
 
 def sequential_map(vals):
-    uniques = sorted(np.unique(vals))
-    return {x: range(len(uniques))[i] for i,x in enumerate(uniques)}
+    uniques = np.unique(vals)
+    return {x: i for i,x in enumerate(uniques)}
 
-def make_stim_matrix_singlespot(I, L):
-    N = np.unique(L, axis=0).shape[0]
-    T = I.shape[0]
+def sequential_map_nd(vals, axis):
+    uniques = np.unique(vals, axis=axis)
+    return {tuple(x): i for i,x in enumerate(uniques)}
 
-    stim = np.zeros((N,T))
+def make_stim_matrix(I, L):
+    # expect L to have shape trials x spots x 3
+    num_trials, num_spots, _ = L.shape
 
     # Now extract unique x, y, z
-    xs = np.unique(L[:,0])
-    ys = np.unique(L[:,1])
-    zs = np.unique(L[:,2])
-    
-    # create maps to map from location in real coordinates to location in index coordinates
-    x_map = sequential_map(xs)
-    y_map = sequential_map(ys)
-    z_map = sequential_map(zs)
+    L_flat  = L.reshape(-1, 3)
+    unique_locs = np.unique(L_flat, axis=0)
+    loc_map = sequential_map_nd(L_flat, axis=0)
+    num_neurons = unique_locs.shape[0]
+
+    stim = np.zeros((num_neurons, num_trials))
 
     # for each trial, convert the tuple x,y,z to a single liner index (from 0 to num_locs)
     # then set that entry of the stim matrix
-    dims = (len(xs), len(ys), len(zs))
-    num_trials = L.shape[0]
     for trial in range(num_trials):
-        loc_idx = (x_map[L[trial,0]], y_map[L[trial, 1]], z_map[L[trial,2]])
-        pixel_idx = np.ravel_multi_index(loc_idx, dims)
-        stim[pixel_idx, trial] = I[trial]
+        for spot in range(num_spots):
+            neuron_idx = loc_map[tuple(L[trial, spot,:])]
+            stim[neuron_idx, trial] = I[trial]
 
-    return stim
+    return stim, loc_map
 
 
 

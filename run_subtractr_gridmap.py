@@ -35,7 +35,7 @@ def parse_fit_options(argseq):
         default="/Users/Bantin/Documents/Columbia/Projects/2p-opto/circuit_mapping/demixers/nwd_ee_ChroME1.ckpt")
 
     # opsin subtract args
-    parser.add_argument('--subtract-pc', action='store_true', default=True)
+    parser.add_argument('--subtract-pc', action='store_true', default=False)
     parser.add_argument('--separate-by-power', action='store_true', default=False)
     parser.add_argument('--rank', type=int, default=1)
 
@@ -54,21 +54,23 @@ if __name__ == "__main__":
     pscs, I, L = dat['psc'], dat['I'], dat['L']
     dset_name = os.path.basename(args.dataset_path).split('.')[0]
 
-    # if stim_matrix is available, we're working with multispot data.
+    # if 'grid' is part of the filename, we're working with multispot data.
     # Reshape things accordingly. In the future, this should be moved to preprocessing.
     # L should have shape (num_trials x num_spots x 3)
     # I should have shape (num_trials,)
     # Both single and multispot are treated the same -- so for singlespot data
     # L will have shape (num_trials x 1 x 3)
     num_powers = len(np.unique(I))
-    if 'stim_matrix' in dat:
+    if 'grid' in dset_name: #multispot
         I = np.ravel(I.T)
         L = np.tile(L, (num_powers,1,1))
-        stim_mat = dat['stim_matrix']
-
-    else:
-        stim_mat = util.make_stim_matrix_singlespot(I, L)
+    elif 'planes' in dset_name: #singlespot
         L = L[:,None,:]
+    else:
+        raise ValueError("Unrecognized filename. Aborting.")
+    
+    # Form stim matrix and map from locations to indices
+    stim_mat, loc_map = util.make_stim_matrix(I, L)
 
     # Optionally run photocurrent subtraction.
     # if no_op is True, the subtraction is a no_op and the following call
@@ -96,6 +98,7 @@ if __name__ == "__main__":
     results['I'] = I
     results['L'] = L
     results['stim_mat'] = stim_mat
+    results['loc_map'] = loc_map
 
     # save args used to get the result
     argstr = json.dumps(args.__dict__)
