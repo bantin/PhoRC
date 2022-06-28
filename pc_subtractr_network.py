@@ -199,7 +199,7 @@ class Subtractr():
         # Run torch update loops
         print('Initiating neural net training...')
         t_start = time.time()
-        self.trainer = pl.Trainer(gpus=num_gpus, max_epochs=epochs)
+        self.trainer = pl.Trainer(gpus=num_gpus, max_epochs=epochs, precision=64)
         self.trainer.fit(self.demixer, train_dataloader, test_dataloader)
         t_stop = time.time()
 
@@ -334,8 +334,8 @@ class NWDUNet(pl.LightningModule):
 
     def forward(self, x):
 
-        x = torch.squeeze(x.float())[:,None,:]
-        import pdb; pdb.set_trace()
+        x = torch.squeeze(x)[:,None,:]
+        # import pdb; pdb.set_trace()
 
         # Encoding
         enc1 = self.dblock1(x)
@@ -343,8 +343,10 @@ class NWDUNet(pl.LightningModule):
         enc3 = self.dblock3(enc2)
         enc4 = self.dblock4(enc3)
 
-        # rework this part!
+        # Permutation invariant part: average embedding over batch
+        dims = enc4.shape
         enc4 = torch.mean(enc4, dim=0, keepdim=True)
+        enc4 = torch.broadcast_to(enc4, dims)
 
         # Decoding
         dec1 = self.ublock1(enc4, skip=enc3)
