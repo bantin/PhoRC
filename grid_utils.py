@@ -121,9 +121,9 @@ def make_psc_tensor_multispot(psc, I, L, stim):
     If not all pixels were hit the same number of times, pad the array with nan.
 
     arguments:
-        L: array of size (num_stims_per_round x num_spots x 3). Here a "round" is running through all holos.
-        I: array of size (num_stims_per_round*num_rounds)
-        stim: array of size (num_pixels x num_stims_per_round*num_rounds)
+        L: array of size (num_stims x num_spots x 3).
+        I: array of size (num_stims)
+        stim: array of size (num_pixels x num_stims)
     '''
     num_trials = I.shape[0]
     powers = np.unique(I)

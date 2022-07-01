@@ -11,6 +11,9 @@ import pytorch_lightning as pl
 import time
 import math
 
+import argparse
+from argparse import ArgumentParser
+
 import tqdm
 
 def _sample_gp(trial_dur=800, gp_lengthscale=25, gp_scale=0.01, n_samples=1):
@@ -107,7 +110,7 @@ def gen_scaled_photocurrents(
     # then set some photocurrents to zero
     scales = np.random.uniform(
         low=photocurrent_scale_min, high=photocurrent_scale_max, size=(num_traces))
-    scales *= np.random.rand(num_traces) >= photocurrent_fraction
+    scales *= np.random.rand(num_traces) <= photocurrent_fraction
     out += scales[:, None] * \
         np.broadcast_to(pc_template, shape=(num_traces, trial_dur))
 
@@ -119,7 +122,9 @@ def gen_photocurrent_data(trial_dur=900,
                           min_traces_per_expt=100,
                           max_traces_per_expt=1000,
                           photocurrent_scale_min=0.05,
-                          photocurrent_scale_max=0.8,
+                          photocurrent_scale_max=1.0,
+                          psc_scale_max=1.0,
+                          psc_scale_min=0.01,
                           photocurrent_fraction=0.3,
                           stim_off_current_min=0.02,
                           stim_off_current_max=0.1,
@@ -128,12 +133,13 @@ def gen_photocurrent_data(trial_dur=900,
                           tau_d_min=20,
                           tau_d_max=80,
                           psc_generation_kwargs=None,
+                          dtype=np.float32,
                         ):
     # Generate length (in traces) for each experiment
     exp_lengths = np.random.randint(low=min_traces_per_expt,
         high=max_traces_per_expt, size=num_expts)
-    inputs = np.zeros((np.sum(exp_lengths), trial_dur))
-    targets = np.zeros((np.sum(exp_lengths), trial_dur))
+    inputs = np.zeros((np.sum(exp_lengths), trial_dur), dtype=dtype)
+    targets = np.zeros((np.sum(exp_lengths), trial_dur), dtype=dtype)
 
     # generate all psc traces from neural demixer
     if psc_generation_kwargs is None:
@@ -169,7 +175,9 @@ def gen_photocurrent_data(trial_dur=900,
             tau_d_min=tau_d_min,
             tau_d_max=tau_d_max,
         )
-        inputs[start_idx:end_idx] = scaled_pcs + pscs[start_idx:end_idx]
+        psc_scale = np.random.uniform(low=psc_scale_min, high=psc_scale_max)
+        scaled_pscs = pscs[start_idx:end_idx] / np.max(pscs[start_idx:end_idx], axis=0, keepdims=True) * psc_scale
+        inputs[start_idx:end_idx] = scaled_pcs + scaled_pscs
         targets[start_idx:end_idx] = scaled_pcs
 
     # The listcomp here should be fast?
@@ -178,28 +186,110 @@ def gen_photocurrent_data(trial_dur=900,
     return expts
 
 
-class Subtractr():
+class Subtractr(pl.LightningModule):
+    @staticmethod
+    def add_model_specific_args(parent_parser):
+        parser = parent_parser.add_argument_group("Subtractr")
+        parser.add_argument('--num_train', type=int, default=1000)
+        parser.add_argument('--num_test', type=int, default=100)
+        parser.add_argument('--trial_dur', type=int, default=900)
+        parser.add_argument('--min_traces_per_expt', type=int, default=100)
+        parser.add_argument('--max_traces_per_expt', type=int, default=1000)
+        parser.add_argument('--photocurrent_scale_min', type=float, default=0.01)
+        parser.add_argument('--photocurrent_scale_max', type=float, default=1.1)
+        parser.add_argument('--psc_scale_min', type=float, default=0.01)
+        parser.add_argument('--psc_scale_max', type=float, default=1.0)
+        parser.add_argument('--photocurrent_fraction', type=float, default=0.3)
+        parser.add_argument('--stim_off_current_min', type=float, default=0.02)
+        parser.add_argument('--stim_off_current_max', type=float, default=1.0)
+        parser.add_argument('--tau_r_min', type=float, default=100)
+        parser.add_argument('--tau_r_max', type=float, default=200)
+        parser.add_argument('--tau_d_min', type=float, default=20)
+        parser.add_argument('--tau_d_max', type=float, default=80)
+        return parent_parser
 
-    def __init__(self, path=None, eval_mode=True, device=None):
-        # Set device dynamically
-        if device is None:
-            self.device = torch.device(
-                'cuda' if torch.cuda.is_available() else 'cpu')
-        else:
-            self.device = torch.device(device)
+    def __init__(self, args):
+        super(Subtractr, self).__init__()
+        self.save_hyperparameters()
+        # Initialize layers
+        self.feature_encoder = torch.nn.ModuleList([
+            DownsamplingBlock(1, 16, 32, 2),
+            DownsamplingBlock(16, 16, 32, 1),
+            DownsamplingBlock(16, 32, 16, 1),
+            DownsamplingBlock(32, 32, 16, 1)
+        ])
 
-        # Load or initialise demixer object
-        if path is not None:
-            self.demixer = NWDUNet().load_from_checkpoint(path)
-            if eval_mode:
-                self.demixer.eval()
-        else:
-            self.demixer = NWDUNet()
+        self.context_encoder = torch.nn.ModuleList([
+            DownsamplingBlock(1, 16, 32, 2),
+            DownsamplingBlock(16, 16, 32, 1),
+            DownsamplingBlock(16, 32, 16, 1),
+            DownsamplingBlock(32, 32, 16, 1)
+        ])
 
-        # Move demixer to device
-        self.demixer = self.demixer.to(self.device)
+        self.ublock1 = UpsamplingBlock(64, 48, 16, 1)
+        self.ublock2 = UpsamplingBlock(48 + 32, 32, 16, 1)
+        self.ublock3 = UpsamplingBlock(32 + 16, 16, 32, 1)
+        self.ublock4 = UpsamplingBlock(16 + 16, 4, 32, 2)
+        self.conv = ConvolutionBlock(4, 1, 256, 255, 1, 2)
 
-    def __call__(self, traces, monotone_filter_start=500, monotone_filter_inplace=True, verbose=True):
+    def forward(self, x):
+
+        x = torch.squeeze(x)[:,None,:] # batch x channel x time
+
+        # make feature vector which is aggregate over entire batch
+        feats = torch.clone(x)
+        for l in self.feature_encoder:
+            feats = l(feats)
+        dims = feats.shape
+        feats = torch.mean(feats, dim=0, keepdim=True) # average over entire batch
+        feats = torch.broadcast_to(feats, dims) #shape of feats now matches shape of inputs
+
+        # Make context embedding, saving outputs to use as skip connections
+        context = torch.clone(x)
+        skip_inputs = []
+        context_sizes = np.zeros(len(self.context_encoder), dtype=int)
+        for l in self.context_encoder:
+            skip_inputs.append(context)
+            context = l(context) 
+
+        # Concatenate context and features along channels dimension
+        context_plus_features = torch.concat((context, feats), dim=1) # channels dimension
+
+        # Decoding
+        dec1 = self.ublock1(context_plus_features, skip=skip_inputs[3])
+        dec2 = self.ublock2(dec1, skip=skip_inputs[2])
+        dec3 = self.ublock3(dec2, skip=skip_inputs[1])
+        dec4 = self.ublock4(dec3, interp_size=x.shape[-1])
+
+        # Final conv layer
+        out = self.conv(dec4)
+
+        return out
+
+    def configure_optimizers(self):
+        return torch.optim.SGD(self.parameters(), lr=1e-2)
+
+    def loss_fn(self, inputs, targets):
+        return nn.functional.mse_loss(inputs, targets)
+
+    def training_step(self, batch, batch_idx):
+        x, y = batch
+        pred = self.forward(x)
+        pred = torch.squeeze(pred)
+        y = torch.squeeze(y)
+        loss = self.loss_fn(pred, y)
+        self.log('train_loss', loss)
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        x, y = batch
+        pred = self.forward(x)
+        pred = torch.squeeze(pred)
+        y = torch.squeeze(y)
+        loss = self.loss_fn(pred, y)
+        self.log('val_loss', loss)
+
+    def run(self, traces, monotone_filter_start=500, monotone_filter_inplace=True, verbose=True):
         ''' Run demixer over PSC trace batch and apply monotone decay filter.
         '''
 
@@ -208,13 +298,13 @@ class Subtractr():
         t1 = time.time()
 
         tmax = np.max(traces, axis=1)[:, None]
-        dem = self.demixer(
+        dem = self.forward(
             torch.Tensor((traces/tmax).copy()
                          [:, None, :]).to(device=self.device)
         ).cpu().detach().numpy().squeeze() * tmax
 
-        # dem = _monotone_decay_filter(dem, inplace=monotone_filter_inplace,
-        # 	monotone_start=monotone_filter_start)
+        dem = cm.neural_waveform_demixing._monotone_decay_filter(dem, inplace=monotone_filter_inplace,
+        	monotone_start=monotone_filter_start)
 
         t2 = time.time()
         if verbose:
@@ -224,88 +314,78 @@ class Subtractr():
         return dem
 
     def generate_training_data(self,
-            num_train,
-            num_test,
-            trial_dur=900,
-            min_traces_per_expt=100,
-            max_traces_per_expt=1000,
-            photocurrent_scale_min=0.05,
-            photocurrent_scale_max=0.8,
-            photocurrent_fraction=0.3,
-            stim_off_current_min=0.02,
-            stim_off_current_max=0.1,
-            tau_r_min=100,
-            tau_r_max=200,
-            tau_d_min=20,
-            tau_d_max=80,
-            psc_generation_kwargs=None):
+            args):
         
         
         self.train_expts = gen_photocurrent_data(
-            trial_dur=trial_dur,
-            num_expts=num_train,
-            min_traces_per_expt=min_traces_per_expt,
-            max_traces_per_expt=max_traces_per_expt,
-            photocurrent_scale_min=photocurrent_scale_min,
-            photocurrent_scale_max=photocurrent_scale_max,
-            photocurrent_fraction=photocurrent_fraction,
-            stim_off_current_min=stim_off_current_min,
-            stim_off_current_max=stim_off_current_max,
-            tau_r_min=tau_r_min,
-            tau_r_max=tau_r_max,
-            tau_d_min=tau_d_min,
-            tau_d_max=tau_d_max,
-            psc_generation_kwargs=psc_generation_kwargs,
+            trial_dur=args.trial_dur,
+            num_expts=args.num_train,
+            min_traces_per_expt=args.min_traces_per_expt,
+            max_traces_per_expt=args.max_traces_per_expt,
+            photocurrent_scale_min=args.photocurrent_scale_min,
+            photocurrent_scale_max=args.photocurrent_scale_max,
+            psc_scale_min=args.psc_scale_min,
+            psc_scale_max=args.psc_scale_max,
+            photocurrent_fraction=args.photocurrent_fraction,
+            stim_off_current_min=args.stim_off_current_min,
+            stim_off_current_max=args.stim_off_current_max,
+            tau_r_min=args.tau_r_min,
+            tau_r_max=args.tau_r_max,
+            tau_d_min=args.tau_d_min,
+            tau_d_max=args.tau_d_max,
+            psc_generation_kwargs=args.psc_generation_kwargs,
+            dtype=np.float32,
         )
         self.test_expts = gen_photocurrent_data(
-            trial_dur=trial_dur,
-            num_expts=num_test,
-            min_traces_per_expt=min_traces_per_expt,
-            max_traces_per_expt=max_traces_per_expt,
-            photocurrent_scale_min=photocurrent_scale_min,
-            photocurrent_scale_max=photocurrent_scale_max,
-            photocurrent_fraction=photocurrent_fraction,
-            stim_off_current_min=stim_off_current_min,
-            stim_off_current_max=stim_off_current_max,
-            tau_r_min=tau_r_min,
-            tau_r_max=tau_r_max,
-            tau_d_min=tau_d_min,
-            tau_d_max=tau_d_max,
-            psc_generation_kwargs=psc_generation_kwargs,
+            trial_dur=args.trial_dur,
+            num_expts=args.num_test,
+            min_traces_per_expt=args.min_traces_per_expt,
+            max_traces_per_expt=args.max_traces_per_expt,
+            photocurrent_scale_min=args.photocurrent_scale_min,
+            photocurrent_scale_max=args.photocurrent_scale_max,
+            psc_scale_max=args.psc_scale_max,
+            photocurrent_fraction=args.photocurrent_fraction,
+            stim_off_current_min=args.stim_off_current_min,
+            stim_off_current_max=args.stim_off_current_max,
+            tau_r_min=args.tau_r_min,
+            tau_r_max=args.tau_r_max,
+            tau_d_min=args.tau_d_min,
+            tau_d_max=args.tau_d_max,
+            psc_generation_kwargs=args.psc_generation_kwargs,
+            dtype=np.float32,
         )
 
-    def train(self, epochs=1000, batch_size=64, learning_rate=1e-2, data_path=None, save_every=1,
-              save_path=None, num_workers=2, pin_memory=True, num_gpus=1):
-        ''' Run pytorch training loop.
-        '''
+    # def train(self, epochs=1000, batch_size=64, learning_rate=1e-2, data_path=None, save_every=1,
+    #           save_path=None, num_workers=2, pin_memory=True, num_gpus=1):
+    #     ''' Run pytorch training loop.
+    #     '''
 
-        # print('CUDA device available: ', torch.cuda.is_available())
-        # print('CUDA device: ', torch.cuda.get_device_name())
+    #     # print('CUDA device available: ', torch.cuda.is_available())
+    #     # print('CUDA device: ', torch.cuda.get_device_name())
 
-        if data_path is not None:
-            raise NotImplementedError
-        else:
-            print('Attempting to load data from self object... ', end='')
-            train_data = PhotocurrentData(start=0, end=len(
-                self.train_expts), expts=self.train_expts)
-            test_data = PhotocurrentData(start=0, end=len(
-                self.test_expts), expts=self.test_expts)
-            print('found.')
+    #     if data_path is not None:
+    #         raise NotImplementedError
+    #     else:
+    #         print('Attempting to load data from self object... ', end='')
+    #         train_data = PhotocurrentData(start=0, end=len(
+    #             self.train_expts), expts=self.train_expts)
+    #         test_data = PhotocurrentData(start=0, end=len(
+    #             self.test_expts), expts=self.test_expts)
+    #         print('found.')
 
-        train_dataloader = DataLoader(train_data,
-                                      pin_memory=pin_memory, num_workers=num_workers)
-        test_dataloader = DataLoader(test_data,
-                                     pin_memory=pin_memory, num_workers=num_workers)
+    #     train_dataloader = DataLoader(train_data,
+    #                                   pin_memory=pin_memory, num_workers=num_workers)
+    #     test_dataloader = DataLoader(test_data,
+    #                                  pin_memory=pin_memory, num_workers=num_workers)
 
-        # Run torch update loops
-        print('Initiating neural net training...')
-        t_start = time.time()
-        self.trainer = pl.Trainer(gpus=num_gpus, max_epochs=epochs, precision=64)
-        self.trainer.fit(self.demixer, train_dataloader, test_dataloader)
-        t_stop = time.time()
+    #     # Run torch update loops
+    #     print('Initiating neural net training...')
+    #     t_start = time.time()
+    #     self.trainer = pl.Trainer(gpus=num_gpus, max_epochs=epochs, precision=64, )
+    #     self.trainer.fit(self.demixer, train_dataloader, test_dataloader)
+    #     t_stop = time.time()
 
-        print("Training complete. Elapsed time: %.2f min." %
-              ((t_stop-t_start)/60))
+        
 
 
 class PhotocurrentData(torch.utils.data.IterableDataset):
@@ -332,30 +412,6 @@ class PhotocurrentData(torch.utils.data.IterableDataset):
             iter_start = self.start + worker_id * per_worker
             iter_end = min(iter_start + per_worker, self.end)
         return iter(self.expts[iter_start:iter_end])
-
-
-class StackedDenoisingNetwork(nn.Module):
-    ''' Denoising neural network consisting of multiple layers of long 1d convolutions.
-    '''
-
-    def __init__(self, n_layers=3, kernel_size=99, padding=49, channels=[16, 8, 1], stride=1):
-        super(StackedDenoisingNetwork, self).__init__()
-        assert n_layers >= 2, 'Neural network must have at least one input layer and one output layer.'
-        assert channels[-1] == 1, 'Output layer must have exactly one output channel'
-
-        layers = [nn.Conv1d(in_channels=1, out_channels=channels[0], kernel_size=kernel_size,
-                            stride=stride, padding=padding)]
-        layers.append(nn.ReLU())
-
-        for l in range(1, n_layers):
-            layers.append(nn.Conv1d(in_channels=channels[l - 1], out_channels=channels[l],
-                                    kernel_size=kernel_size, stride=stride, padding=padding))
-            layers.append(nn.ReLU())
-
-        self.layers = nn.Sequential(*layers)
-
-    def forward(self, x):
-        return self.layers(x)
 
 
 class DownsamplingBlock(nn.Module):
@@ -413,97 +469,55 @@ class ConvolutionBlock(nn.Module):
     def forward(self, x):
         return self.relu(self.bn(self.conv(x)))
 
-
-class NWDUNet(pl.LightningModule):
-    ''' Neural waveform demixing U-Net
-    '''
-
-    def __init__(self):
-        super(NWDUNet, self).__init__()
-        self.feature_encoder = torch.nn.ModuleList([
-            DownsamplingBlock(1, 16, 32, 2),
-            DownsamplingBlock(16, 16, 32, 1),
-            DownsamplingBlock(16, 32, 16, 1),
-            DownsamplingBlock(32, 32, 16, 1)
-        ])
-
-        self.context_encoder = torch.nn.ModuleList([
-            DownsamplingBlock(1, 16, 32, 2),
-            DownsamplingBlock(16, 16, 32, 1),
-            DownsamplingBlock(16, 32, 16, 1),
-            DownsamplingBlock(32, 32, 16, 1)
-        ])
-
-        self.ublock1 = UpsamplingBlock(64, 48, 16, 1)
-        self.ublock2 = UpsamplingBlock(48 + 32, 32, 16, 1)
-        self.ublock3 = UpsamplingBlock(32 + 16, 16, 32, 1)
-        self.ublock4 = UpsamplingBlock(16 + 16, 4, 32, 2)
-
-        self.conv = ConvolutionBlock(4, 1, 256, 255, 1, 2)
-
-    def forward(self, x):
-
-        x = torch.squeeze(x)[:,None,:] # batch x channel x time
-
-        # make feature vector which is aggregate over entire batch
-        feats = torch.clone(x)
-        for l in self.feature_encoder:
-            feats = l(feats)
-        dims = feats.shape
-        feats = torch.mean(feats, dim=0, keepdim=True) # average over entire batch
-        feats = torch.broadcast_to(feats, dims) #shape of feats now matches shape of inputs
-
-        # Make context embedding, saving outputs to use as skip connections
-        context = torch.clone(x)
-        skip_inputs = []
-        context_sizes = np.zeros(len(self.context_encoder), dtype=int)
-        for l in self.context_encoder:
-            skip_inputs.append(context)
-            context = l(context) 
-
-        # Concatenate context and features along channels dimension
-        context_plus_features = torch.concat((context, feats), dim=1) # channels dimension
-
-        # Decoding
-        # NOTE: could add skip conns here
-        dec1 = self.ublock1(context_plus_features, skip=skip_inputs[3])
-        dec2 = self.ublock2(dec1, skip=skip_inputs[2])
-        dec3 = self.ublock3(dec2, skip=skip_inputs[1])
-        dec4 = self.ublock4(dec3, interp_size=x.shape[-1])
-
-        # Final conv layer
-        out = self.conv(dec4)
-
-        return out
-
-    def configure_optimizers(self):
-        return torch.optim.SGD(self.parameters(), lr=1e-2)
-
-    def loss_fn(self, inputs, targets):
-        return nn.functional.mse_loss(inputs, targets)
-
-    def training_step(self, batch, batch_idx):
-        x, y = batch
-        pred = self.forward(x)
-        pred = torch.squeeze(pred)
-        y = torch.squeeze(y)
-        loss = self.loss_fn(pred, y)
-        self.log('train_loss', loss)
-        return loss
-
-    def validation_step(self, batch, batch_idx):
-        x, y = batch
-        pred = self.forward(x)
-        pred = torch.squeeze(pred)
-        y = torch.squeeze(y)
-        loss = self.loss_fn(pred, y)
-        self.log('val_loss', loss)
+class StoreDictKeyPair(argparse.Action):
+     def __call__(self, parser, namespace, values, option_string=None):
+         my_dict = {}
+         for kv in values.split(","):
+             k,v = kv.split("=")
+             my_dict[k] = v
+         setattr(namespace, self.dest, my_dict)
 
 
 if __name__ == "__main__":
-    from pc_subtractr_network import Subtractr
-    torch.set_default_dtype(torch.float64)
-    pc_subtractr = Subtractr()
-    pc_subtractr.generate_training_data(
-        num_train=2, num_test=1)
-    pc_subtractr.train(num_gpus=0)
+    parser = ArgumentParser()
+
+    # Add program level args. The arguments for PSC generation are passed as a separate dictionary
+    parser.add_argument('--num_workers', type=int, default=16)
+    parser.add_argument('--data_save_path', type=str, default="")
+    parser.add_argument('--data_load_path', type=str, default="")
+    parser.add_argument("--psc_generation_kwargs", dest="psc_generation_kwargs", action=StoreDictKeyPair,
+        metavar="gp_scale=0.045,delta_lower=160,\
+                delta_upper=400,next_delta_lower=400,next_delta_upper=899,\
+                prev_delta_upper=150,tau_diff_lower=60,\
+                tau_diff_upper=120,tau_r_lower=10,\
+                tau_r_upper=tau_r_upper,noise_std_lower=0.001,\
+                noise_std_upper=0.02,gp_lengthscale=45,convolve=False,sigma=sigma")
+
+    parser = Subtractr.add_model_specific_args(parser)
+    parser = pl.Trainer.add_argparse_args(parser)
+    args = parser.parse_args()
+
+    
+    # Create subtractr and gen data
+    subtractr = Subtractr(args)
+
+    if args.data_load_path != "":
+        pass
+    else:
+        subtractr.generate_training_data(args)
+
+    if args.data_save_path != "":
+        np.savez(args.data_save_path, train_expts=subtractr.train_expts, test_expts=subtractr.test_expts)
+
+
+    train_dset = PhotocurrentData(start=0, end=len(subtractr.train_expts), expts=subtractr.train_expts)
+    test_dset = PhotocurrentData(start=0, end=len(subtractr.test_expts), expts=subtractr.test_expts)
+    train_dataloader = DataLoader(train_dset,
+                                      pin_memory=True, num_workers=args.num_workers)
+    test_dataloader = DataLoader(test_dset,
+                                    pin_memory=True, num_workers=args.num_workers)
+
+    # Run torch update loops
+    trainer = pl.Trainer.from_argparse_args(args)
+    trainer.fit(subtractr, train_dataloader, test_dataloader)
+
