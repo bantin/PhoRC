@@ -94,7 +94,7 @@ if __name__ == "__main__":
             'minimum_spike_count': args.minimum_spike_count}
     )
 
-    results['model'] = model
+    results['model_state'] = model.state
     results['I'] = I
     results['L'] = L
     results['stim_mat'] = stim_mat

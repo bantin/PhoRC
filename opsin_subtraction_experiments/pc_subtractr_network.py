@@ -10,6 +10,7 @@ from torch.utils.data import Dataset, DataLoader
 import pytorch_lightning as pl
 import time
 import math
+import sys
 
 import argparse
 from argparse import ArgumentParser
@@ -198,8 +199,8 @@ class Subtractr(pl.LightningModule):
         parser.add_argument('--photocurrent_scale_min', type=float, default=0.01)
         parser.add_argument('--photocurrent_scale_max', type=float, default=1.1)
         parser.add_argument('--psc_scale_min', type=float, default=0.01)
-        parser.add_argument('--psc_scale_max', type=float, default=1.0)
-        parser.add_argument('--photocurrent_fraction', type=float, default=0.3)
+        parser.add_argument('--psc_scale_max', type=float, default=0.5)
+        parser.add_argument('--photocurrent_fraction', type=float, default=0.5)
         parser.add_argument('--stim_off_current_min', type=float, default=0.02)
         parser.add_argument('--stim_off_current_max', type=float, default=1.0)
         parser.add_argument('--tau_r_min', type=float, default=100)
@@ -208,9 +209,12 @@ class Subtractr(pl.LightningModule):
         parser.add_argument('--tau_d_max', type=float, default=80)
         return parent_parser
 
-    def __init__(self, args):
+    def __init__(self, args=None):
         super(Subtractr, self).__init__()
+
+        # save hyperparms stored in args, if present
         self.save_hyperparameters()
+
         # Initialize layers
         self.feature_encoder = torch.nn.ModuleList([
             DownsamplingBlock(1, 16, 32, 2),
@@ -474,11 +478,10 @@ class StoreDictKeyPair(argparse.Action):
          my_dict = {}
          for kv in values.split(","):
              k,v = kv.split("=")
-             my_dict[k] = v
+             my_dict[k] = float(v)
          setattr(namespace, self.dest, my_dict)
 
-
-if __name__ == "__main__":
+def parse_args(argseq):
     parser = ArgumentParser()
 
     # Add program level args. The arguments for PSC generation are passed as a separate dictionary
@@ -486,18 +489,23 @@ if __name__ == "__main__":
     parser.add_argument('--data_save_path', type=str, default="")
     parser.add_argument('--data_load_path', type=str, default="")
     parser.add_argument("--psc_generation_kwargs", dest="psc_generation_kwargs", action=StoreDictKeyPair,
-        metavar="gp_scale=0.045,delta_lower=160,\
-                delta_upper=400,next_delta_lower=400,next_delta_upper=899,\
-                prev_delta_upper=150,tau_diff_lower=60,\
-                tau_diff_upper=120,tau_r_lower=10,\
-                tau_r_upper=tau_r_upper,noise_std_lower=0.001,\
-                noise_std_upper=0.02,gp_lengthscale=45,convolve=False,sigma=sigma")
+        default=dict(gp_scale=0.045,delta_lower=160,
+                delta_upper=400,next_delta_lower=400,next_delta_upper=899,
+                prev_delta_upper=150,tau_diff_lower=60,
+                tau_diff_upper=120,tau_r_lower=10,
+                tau_r_upper=40,noise_std_lower=0.001,
+                noise_std_upper=0.02,gp_lengthscale=45,sigma=30)
+    )
 
     parser = Subtractr.add_model_specific_args(parser)
     parser = pl.Trainer.add_argparse_args(parser)
-    args = parser.parse_args()
+    args = parser.parse_args(argseq)
+    return args
 
+
+if __name__ == "__main__":
     
+    args = parse_args(sys.argv[1:])
     # Create subtractr and gen data
     subtractr = Subtractr(args)
 

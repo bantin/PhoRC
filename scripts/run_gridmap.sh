@@ -20,6 +20,6 @@ arg_str="$*"
 
 LINE=$(sed -n "$SLURM_ARRAY_TASK_ID"p /share/ctn/users/ba2617/mbcs_grids/filelist.txt )
 
-python run_subtractr_gridmap.py --iters 50 --dataset-path $LINE --demixer-checkpoint "/home/ba2617/circuit_mapping/demixers/nwd_ee_ChroME1.ckpt"
+python run_gridmap.py --iters 50 --dataset-path $LINE --demixer-checkpoint "/home/ba2617/circuit_mapping/demixers/nwd_ee_ChroME1.ckpt"
 
 # End of script
