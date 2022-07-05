@@ -1,5 +1,4 @@
 %% get filename and set name for saved file
-clear;
 filename = input("Enter filepath for processing:\n", "s");
 load(filename)
 [filepath, name, ext] = fileparts(filename);
