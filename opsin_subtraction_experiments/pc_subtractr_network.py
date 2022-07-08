@@ -83,7 +83,7 @@ def gen_scaled_photocurrents(
             tau_d_min=20,
             tau_d_max=80,
             per_trial_gp_scale=0.001,
-            per_trial_gp_lengthscale=10,
+            per_trial_gp_lengthscale=50,
                              ):
     out = np.zeros((num_traces, trial_dur))
 
@@ -109,8 +109,11 @@ def gen_scaled_photocurrents(
 
     # generate random scaling of the photocurrent for each trace,
     # then set some photocurrents to zero
+    this_exp_max = np.random.uniform(
+        low=photocurrent_scale_min, high=photocurrent_scale_max,
+    )
     scales = np.random.uniform(
-        low=photocurrent_scale_min, high=photocurrent_scale_max, size=(num_traces))
+        low=photocurrent_scale_min, high=this_exp_max, size=(num_traces))
     scales *= np.random.rand(num_traces) <= photocurrent_fraction
     out += scales[:, None] * \
         np.broadcast_to(pc_template, shape=(num_traces, trial_dur))
@@ -177,8 +180,10 @@ def gen_photocurrent_data(trial_dur=900,
             tau_d_max=tau_d_max,
         )
         psc_scale = np.random.uniform(low=psc_scale_min, high=psc_scale_max)
-        scaled_pscs = pscs[start_idx:end_idx] / np.max(pscs[start_idx:end_idx], axis=0, keepdims=True) * psc_scale
-        inputs[start_idx:end_idx] = scaled_pcs + scaled_pscs
+        scaled_pscs = pscs[start_idx:end_idx] / np.max(pscs[start_idx:end_idx]) * psc_scale
+
+        curr_exp = scaled_pcs + scaled_pscs
+        inputs[start_idx:end_idx] = curr_exp
         targets[start_idx:end_idx] = scaled_pcs
 
     # The listcomp here should be fast?
@@ -293,22 +298,29 @@ class Subtractr(pl.LightningModule):
         loss = self.loss_fn(pred, y)
         self.log('val_loss', loss)
 
-    def run(self, traces, monotone_filter_start=500, monotone_filter_inplace=True, verbose=True):
+    def run(self, traces, monotone_filter=False, monotone_filter_start=500, verbose=True, normalize=False):
         ''' Run demixer over PSC trace batch and apply monotone decay filter.
         '''
 
         if verbose:
-            print('Demixing PSC traces... ', end='')
+            print('Running photocurrent removal...', end='')
         t1 = time.time()
 
-        tmax = np.max(traces, axis=1)[:, None]
+        # Here, we normalize over a whole batch of traces, so that the largest amplitude is 1.
+        # Note that this is different from NWD, where we scale each trace.
+        if normalize:
+            tmax = np.max(traces)
+        else:
+            tmax = 1.0
         dem = self.forward(
-            torch.Tensor((traces/tmax).copy()
-                         [:, None, :]).to(device=self.device)
+            torch.tensor(
+                (traces/tmax), dtype=torch.float32, device=self.device
+            )
         ).cpu().detach().numpy().squeeze() * tmax
 
-        dem = cm.neural_waveform_demixing._monotone_decay_filter(dem, inplace=monotone_filter_inplace,
-        	monotone_start=monotone_filter_start)
+        if monotone_filter:
+            dem = cm.neural_waveform_demixing._monotone_decay_filter(dem, inplace=False,
+                monotone_start=monotone_filter_start)
 
         t2 = time.time()
         if verbose:
@@ -509,8 +521,13 @@ if __name__ == "__main__":
     # Create subtractr and gen data
     subtractr = Subtractr(args)
 
+    # seed everything
+    pl.seed_everything(0)
+
     if args.data_load_path != "":
-        pass
+        dat = np.load(args.data_load_path, allow_pickle=True)
+        subtractr.train_expts = [(x[0], x[1]) for x in dat['train_expts']]
+        subtractr.test_expts = [(x[0], x[1]) for x in dat['test_expts']]
     else:
         subtractr.generate_training_data(args)
 

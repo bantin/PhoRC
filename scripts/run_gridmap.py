@@ -76,6 +76,8 @@ if __name__ == "__main__":
     # if no_op is True, the subtraction is a no_op and the following call
     # simply populates the results dictionary.
     no_op = (not args.subtract_pc)
+    if not no_op:
+        print('Running opsin subtraction pipeline...')
     results = subtract_utils.run_subtraction_pipeline(pscs, I, L, stim_mat,
         args.demixer_checkpoint, separate_by_power=False, rank=1, no_op=no_op)
 

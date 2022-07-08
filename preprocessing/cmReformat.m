@@ -357,6 +357,13 @@ pscs = zeros(ExpStruct.expParams.repeats*sum(ExpStruct.holoStimParams.nHolos(1,:
 psps = zeros(ExpStruct.expParams.repeats*sum(ExpStruct.holoStimParams.nHolos(1,:)),size(draw_dataWinSamplingPnts,2)+99);
 stimulus_matrix = zeros(size(ExpStruct.holoRequest.targets,1),ExpStruct.expParams.repeats*sum(ExpStruct.holoStimParams.nHolos(1,:))); 
 
+% stimulus_matrix should be array of size (num_neurons x num_stim)
+% each column shows the power delivered to each neuron on that stim.
+% For example, if we're doing 2 spot mapping and we have 6 total cells,
+% the first column might look like:
+% [0 0 30 0 30 0]
+% meaning that we stimmed cells 3 and 5 on the first stim at 30mW.
+
 n=0;
 
 for i=1:nConditions
