@@ -1,7 +1,7 @@
 from posixpath import sep
-import jax
 import jax.numpy as jnp
 from jax import jit, vmap
+from circuitmap.neural_waveform_demixing import _monotone_decay_filter
 
 import nmu
 import numpy as np
@@ -50,6 +50,10 @@ def _nmu_estimate_with_baseline(pscs, stim_start=100, stim_end=200):
     pscs_truncated -= mu
 
     V_post = np.linalg.lstsq(U_stim, pscs_truncated)[0]
+
+    # run temporal waveform through monotone decay filter
+    # to avoid picking up effects from the following trial
+    V_post = _monotone_decay_filter(V_post, inplace=False)
 
     # V_post = np.linalg.lstsq(U_stim, pscs_truncated[:,stim_end:])[0]
     # V_final = np.zeros((1, pscs_truncated.shape[-1]))

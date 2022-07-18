@@ -8,7 +8,7 @@
 #SBATCH --gres=gpu:a40:1
 #SBATCH --output=%x.%j.out
 #SBATCH --error=%x.%j.err
- 
+
 echo "Denoising m.s. grids"
 
 source ~/.bashrc
