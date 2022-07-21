@@ -114,7 +114,7 @@ def get_max_hits(I, stim):
     return max
 
 
-def make_psc_tensor_multispot(psc, I, L, stim):
+def make_psc_tensor_multispot(pscs, powers, targets, stim_mat):
     '''
     Stack all observations into a PSC tensor of shape powers x height x width x trials x time.
     
@@ -125,44 +125,43 @@ def make_psc_tensor_multispot(psc, I, L, stim):
         I: array of size (num_stims)
         stim: array of size (num_pixels x num_stims)
     '''
-    num_trials = I.shape[0]
-    powers = np.unique(I)
-    num_powers = len(powers)
-    timesteps = psc.shape[-1]
-    num_spots = L.shape[1]
+    num_trials = powers.shape[0]
+    unique_powers = np.unique(powers)
+    num_powers = len(unique_powers)
+    timesteps = pscs.shape[-1]
     
     # First, we need to compute the maximum number of times a pixel was stimmed.
     # If a pixel was stimmed 10x at 30mW and 10x at 50mW, we want to count these separately,
     # so we stack powers and locations to find stims at each unique power.
-    max_stims = get_max_hits(I, stim)
+    max_stims = get_max_hits(powers, stim_mat)
     
     # Now extract unique x, y, z
-    L_unrolled = L.reshape(-1, 3)
-    xs = np.unique(L_unrolled[:,0])
-    ys = np.unique(L_unrolled[:,1])
-    zs = np.unique(L_unrolled[:,2])
+    xs = np.unique(targets[:,0])
+    ys = np.unique(targets[:,1])
+    zs = np.unique(targets[:,2])
     
     # create maps to map from location in real coordinates to location in index coordinates
     x_map = sequential_map(xs)
     y_map = sequential_map(ys)
     z_map = sequential_map(zs)
-    p_map = sequential_map(powers)
+    p_map = sequential_map(unique_powers)
     
     # Create array and fill with nan
     psc_tensor = np.zeros((num_powers, len(xs), len(ys), len(zs), max_stims, timesteps)) + np.nan
     stim_inds = np.zeros((num_powers, len(xs), len(ys), len(zs)), dtype=int)
     
     for trial in range(num_trials):
-        for spot in range(num_spots):
-            powerloc_idx = ( p_map[I[trial]],
-                    x_map[L[trial, spot, 0]],
-                    y_map[L[trial, spot, 1]],
-                    z_map[L[trial, spot, 2]],
-            )
-            
+        neurons_this_trial = np.where(stim_mat[:,trial])[0]
+        for neuron_idx in neurons_this_trial:
+            x_idx = x_map[targets[neuron_idx,0]] 
+            y_idx = y_map[targets[neuron_idx,1]] 
+            z_idx = z_map[targets[neuron_idx,2]] 
+            p_idx = p_map[powers[trial]]
+            powerloc_idx = (p_idx, x_idx, y_idx, z_idx)
+
             stim_idx = stim_inds[powerloc_idx]
             combined_idx = (*powerloc_idx, stim_idx)
-            psc_tensor[combined_idx] = psc[trial]
+            psc_tensor[combined_idx] = pscs[trial]
             
             # increment number of stims for a given location at a given power
             stim_inds[powerloc_idx] += 1

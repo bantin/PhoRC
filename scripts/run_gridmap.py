@@ -3,6 +3,7 @@ from mpl_toolkits.axes_grid1 import ImageGrid
 import matplotlib.pyplot as plt
 from circuitmap import NeuralDemixer
 import circuitmap as cm
+import h5py
 
 
 import sys
@@ -23,6 +24,7 @@ def parse_fit_options(argseq):
         description='Opsin subtraction + CAVIaR for Grid Denoising')
     
     # caviar args
+    parser.add_argument('--run-caviar', action='store_true', default=False)
     parser.add_argument('--minimum-spike-count', type=int, default=3)
     parser.add_argument('--msrmp', type=float, default=0.3)
     parser.add_argument('--iters', type=int, default=30)
@@ -49,28 +51,39 @@ def parse_fit_options(argseq):
 
 if __name__ == "__main__":
     args = parse_fit_options(sys.argv[1:]) 
-    dat = np.load(args.dataset_path, allow_pickle='True')
-
-    pscs, I, L = dat['psc'], dat['I'], dat['L']
+    f = h5py.File(args.dataset_path)
     dset_name = os.path.basename(args.dataset_path).split('.')[0]
 
+    pscs = np.array(f['pscs']).T
+    stim_mat = np.array(f['stimulus_matrix']).T
+    targets = np.array(f['targets']).T
+    powers = np.max(stim_mat, axis=0)
+
+    # get rid of any trials where we didn't actually stim
+    good_idxs = (powers > 0)
+    pscs = pscs[good_idxs,:]
+    stim_mat = stim_mat[:,good_idxs]
+    powers = powers[good_idxs]
+    
     # if 'grid' is part of the filename, we're working with multispot data.
     # Reshape things accordingly. In the future, this should be moved to preprocessing.
     # L should have shape (num_trials x num_spots x 3)
     # I should have shape (num_trials,)
     # Both single and multispot are treated the same -- so for singlespot data
     # L will have shape (num_trials x 1 x 3)
-    num_powers = len(np.unique(I))
-    if 'grid' in dset_name: #multispot
-        I = np.ravel(I.T)
-        L = np.tile(L, (num_powers,1,1))
-    elif 'planes' in dset_name: #singlespot
-        L = L[:,None,:]
-    else:
-        raise ValueError("Unrecognized filename. Aborting.")
+    # num_powers = len(np.unique(I))
+    # if 'grid' in dset_name: #multispot
+    #     I = np.ravel(I.T)
+    #     L = np.tile(L, (num_powers,1,1))
+    # elif 'planes' in dset_name: #singlespot
+    #     L = L[:,None,:]
+    # else:
+    #     raise ValueError("Unrecognized filename. Aborting.")
     
     # Form stim matrix and map from locations to indices
-    stim_mat, loc_map = util.make_stim_matrix(I, L)
+    # stim_mat, loc_map = util.make_stim_matrix(I, L)
+
+
 
     # Optionally run photocurrent subtraction.
     # if no_op is True, the subtraction is a no_op and the following call
@@ -78,29 +91,29 @@ if __name__ == "__main__":
     no_op = (not args.subtract_pc)
     if not no_op:
         print('Running opsin subtraction pipeline...')
-    results = subtract_utils.run_subtraction_pipeline(pscs, I, L, stim_mat,
+    results = subtract_utils.run_subtraction_pipeline(pscs, powers, targets, stim_mat,
         args.demixer_checkpoint, separate_by_power=False, rank=1, no_op=no_op)
 
     num_planes = results['raw_map'].shape[-1]
 
     # Run CAVIaR algorithm
-    N = stim_mat.shape[0]
-    model = cm.Model(N)
-    model.fit(results['demixed_matrix'],
-        stim_mat,
-        method='caviar',
-        fit_options={
-            'msrmp': args.msrmp,
-            'iters': args.iters,
-            'save_histories': args.save_histories,
-            'minimum_spike_count': args.minimum_spike_count}
-    )
+    if args.run_caviar:
+        N = stim_mat.shape[0]
+        model = cm.Model(N)
+        model.fit(results['demixed_matrix'],
+            stim_mat,
+            method='caviar',
+            fit_options={
+                'msrmp': args.msrmp,
+                'iters': args.iters,
+                'save_histories': args.save_histories,
+                'minimum_spike_count': args.minimum_spike_count}
+        )
 
-    results['model_state'] = model.state
-    results['I'] = I
-    results['L'] = L
+        results['model_state'] = model.state
+    results['powers'] = powers
+    results['targets'] = targets
     results['stim_mat'] = stim_mat
-    results['loc_map'] = loc_map
 
     # save args used to get the result
     argstr = json.dumps(args.__dict__)

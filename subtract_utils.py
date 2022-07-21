@@ -11,7 +11,7 @@ def traces_tensor_to_map(tensor):
 
 
 def plot_subtraction_comparison(raw_tensor, est_tensors, subtracted_tensors, demixed_tensors,
-        powers, colors=['red', 'blue'], order=None, num_plots_per_power=30, z_idx=None,
+        powers, colors=['red', 'blue'], sort_by='raw', num_plots_per_power=30, z_idx=None,
         ):
 
     # see if we should restrict plot to only one plane
@@ -34,10 +34,18 @@ def plot_subtraction_comparison(raw_tensor, est_tensors, subtracted_tensors, dem
                         xy=(-0.3,1.1))
 
 
-        # get order from raw traces
+        # get order from traces, depending on user-specified sorting
         raw_traces = raw_tensor[power_idx,:,:,z_idx,...].reshape(-1, ntrials, ntimesteps)
-        mean_map_raw = traces_tensor_to_map(raw_traces)
-        order = np.argsort(mean_map_raw)[::-1]
+
+        if sort_by == 'raw':
+            sort_map = traces_tensor_to_map(raw_traces)
+        elif sort_by == 'subtracted':
+            sort_map = traces_tensor_to_map(subtracted_tensors[0][power_idx,:,:,z_idx,...].reshape(-1, ntrials, ntimesteps))
+        elif sort_by == 'demixed':
+            sort_map = traces_tensor_to_map(demixed_tensors[0][power_idx,:,:,z_idx,...].reshape(-1, ntrials, ntimesteps))
+        else:
+            raise ValueError('Unknown argument for sorting')
+        order = np.argsort(sort_map)[::-1]
 
         # set ylims for first two columns based on raw data
         raw_min = np.nanmin(raw_traces[:,0:500]) # ignore the last timesteps because of context from next trial
@@ -90,12 +98,12 @@ def plot_subtraction_comparison(raw_tensor, est_tensors, subtracted_tensors, dem
     plt.tight_layout()
     return fig, axs
 
-def run_subtraction_pipeline(pscs, I, L, stim, demixer_checkpoint, no_op=False, **run_kwargs):
+def run_subtraction_pipeline(pscs, powers, targets, stim, demixer_checkpoint, no_op=False, **run_kwargs):
     # Run subtraction on all PSCs
     if no_op:
         est = np.zeros_like(pscs)
     else:
-        est = subtractr.estimate_photocurrents_baseline(pscs, I, **run_kwargs)
+        est = subtractr.estimate_photocurrents_baseline(pscs, powers, **run_kwargs)
     subtracted = pscs - est
 
     # load demixer checkpoint and demix
@@ -103,10 +111,10 @@ def run_subtraction_pipeline(pscs, I, L, stim, demixer_checkpoint, no_op=False, 
     demixed = util.denoise_pscs_in_batches(subtracted, demixer)
 
     # convert to tensors for easier plotting
-    raw_pscs_tensor = util.make_psc_tensor_multispot(pscs, I, L, stim)
-    est_pscs_tensor = util.make_psc_tensor_multispot(est, I, L, stim)
-    subtracted_pscs_tensor = util.make_psc_tensor_multispot(subtracted, I, L, stim)
-    demixed_pscs_tensor = util.make_psc_tensor_multispot(demixed, I, L, stim)
+    raw_pscs_tensor = util.make_psc_tensor_multispot(pscs, powers, targets, stim)
+    est_pscs_tensor = util.make_psc_tensor_multispot(est, powers, targets, stim)
+    subtracted_pscs_tensor = util.make_psc_tensor_multispot(subtracted, powers, targets, stim)
+    demixed_pscs_tensor = util.make_psc_tensor_multispot(demixed, powers, targets, stim)
 
     # make plot of spatial maps
     mean_map = traces_tensor_to_map(raw_pscs_tensor)
