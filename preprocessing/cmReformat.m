@@ -1,10 +1,25 @@
-%% get filename and set name for saved file
-clear;
-filename = input("Enter filepath for processing:\n", "s");
-load(filename)
-[filepath, name, ext] = fileparts(filename);
-outpath = strcat(name, '_cmFormat.mat');
+function [pscs, psps, stimulus_matrix, targets, img, pipette_position] = cmReformat(mat_contents, savepath, config)
     
+if ~isfield(mat_contents, 'ExpStruct') % working with weird structure
+    ExpStruct = mat_contents.ExpStruct2;
+    ExpStruct = rename_fields(ExpStruct);
+else
+    ExpStruct = mat_contents.ExpStruct;
+end
+
+% config determines whether we're working with exc or inhib connections.
+exc_input = config.exc_input;
+
+%% Check whether the target structure is faulty and restructure if so
+alt_roi_structure = false;
+unique_targets_len = size(unique(ExpStruct.holoRequest.targets, 'rows'), 1);
+orig_targets_len = size(ExpStruct.holoRequest.targets, 1);
+if orig_targets_len ~= unique_targets_len
+    alt_roi_structure = true;
+    [new_targets, new_rois] = reformat_grid_targets(ExpStruct);
+    ExpStruct.holoRequest.targets = new_targets;
+end
+
 
 %% Format data for circuit mapping software pipeline
 nPlanes=unique(ExpStruct.holoRequest.targets(:,3));
@@ -37,7 +52,14 @@ SortedData.reps=ExpStruct.expParams.repeats;
 %SortedData.Rs = ExpStruct.Rs;
 SortedData.cell_paramneters_execution_times = ExpStruct.cell_paramneters_execution_times;
 %SortedData.OnePpulse_inputs = ExpStruct.OnePpulse_inputs;
-SortedData.OnePpulse = ExpStruct.OnePpulse;
+
+if isfield(ExpStruct, 'OnePpulse')
+    
+    SortedData.OnePpulse = ExpStruct.OnePpulse;
+else
+    SortedData.OnePulse = ExpStruct.OnePpulse_inputs;
+end
+    
 SortedData.expParams = ExpStruct.expParams;
 SortedData.holoRequest = ExpStruct.holoRequest;
 SortedData.holoStimParams = ExpStruct.holoStimParams;
@@ -233,7 +255,7 @@ for pp = 1:nConditions % From a select Condition...
     dataWin = 0:(ExpStruct.outParams.ipi(pp)+7);%*ExpStruct.outParams.nPulses); % specify the data window (in ms) of inter pulse interval. If changed then apply changes to plotting too
     draw_dataWin = 0:ExpStruct.outParams.ipi(pp)+7;%*ExpStruct.outParams.nPulses;
     dataWinSamplingPnts = dataWin(1):dataWin(end)*srate/1000; % number of sampling points within the ipi
-    draw_dataWinSamplingPnts = draw_dataWin(1):draw_dataWin(end)*srate/1000;
+    draw_dataWinSamplingPnts = draw_dataWin(1):(draw_dataWin(end)*srate/1000 + 60); %%%%% HACK!!!!!!!!!!!
 
         % Set time span of whole grid stimulation "holoWin"(in ms)
     holoTriggers = ExpStruct.outParams.nextHoloStims{1 , pp}; % when (in fs) during each trial stim laser is on
@@ -264,6 +286,9 @@ for pp = 1:nConditions % From a select Condition...
         end
         
         % Add detrending step
+        if exc_input
+            trace = -trace;
+        end
         trace_smooth = smoothdata(trace, 'gaussian', gauss_window);
         trace_min = movmin(trace_smooth, minmax_window, 1);
         baseline = movmax(trace_min, minmax_window, 1);
@@ -371,7 +396,9 @@ for i=1:nConditions
     
     for j=1:ExpStruct.holoStimParams.nHolos(1,i)
     
-        if isfield(ExpStruct.holoRequest,'condRois')
+        if alt_roi_structure
+            [this_holo_members] = new_rois{j,:}; 
+        elseif isfield(ExpStruct.holoRequest,'condRois')
             [this_holo_members] = ExpStruct.holoRequest.condRois{i,1}{j,:}(1,:);  % for old code cells
         else
             [this_holo_members] = (ExpStruct.holoRequest.condHolos{i,1}{j,:}(1,:));
@@ -413,8 +440,9 @@ else
     pipette_position = NaN;
 end
 
-save(outpath, 'pscs', 'psps', 'stimulus_matrix', 'targets', 'img', 'pipette_position', '-v7.3');
+save(savepath, 'pscs', 'psps', 'stimulus_matrix', 'targets', 'img', 'pipette_position', '-v7.3');
 
+end
 %  figure(1)           
 %  imagesc(trials_matrix);hold on; % laser stim
 %  xline(100, 'r');
