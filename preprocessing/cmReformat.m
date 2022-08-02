@@ -14,10 +14,19 @@ exc_input = config.exc_input;
 post_stim_len = config.post_stim_len;
 pre_stim_len = config.pre_stim_len;
 
-%% Check whether the target structure is faulty and restructure if so
+% Check whether the target structure is faulty and restructure if so
+% Prefer to use the actualTargets field if it's there.
+if isfield(ExpStruct.holoRequest, 'actualtargets')
+    orig_targets = ExpStruct.holoRequest.actualtargets;
+else
+    orig_targets = ExpStruct.holoRequest.targets;
+end
+
+assert(size(orig_targets, 2) == 3, 'Expect targets to have second dimension of size 3')
 alt_roi_structure = false;
-unique_targets_len = size(unique(ExpStruct.holoRequest.targets, 'rows'), 1);
-orig_targets_len = size(ExpStruct.holoRequest.targets, 1);
+unique_targets_len = size(unique(orig_targets, 'rows'), 1);
+orig_targets_len = size(orig_targets, 1);
+
 if orig_targets_len ~= unique_targets_len
     alt_roi_structure = true;
     [new_targets, new_rois] = reformat_grid_targets(ExpStruct);
