@@ -8,7 +8,11 @@ else
 end
 
 % config determines whether we're working with exc or inhib connections.
+disp('Running with config:')
+disp(config)
 exc_input = config.exc_input;
+post_stim_len = config.post_stim_len;
+pre_stim_len = config.pre_stim_len;
 
 %% Check whether the target structure is faulty and restructure if so
 alt_roi_structure = false;
@@ -249,13 +253,14 @@ for pp = 1:nConditions % From a select Condition...
     this_seq_nPulses=ExpStruct.outParams.nPulses(1,pp);
     datawinsSortedByHolosPerPower = cell(1, nHolos(pp)*this_seq_nPulses); %cell for datawindows sorted by true hologram order, and rounded up across trials and powers
     datawinsSortedByHolosPerPower_LP = cell(1, nHolos(pp)*this_seq_nPulses); %temp_datawinsSortedByHolosAllPowers = cell(1, nHolos(pp));
+
     % Set time span of each hologram interval "dataWin"(in ms) of start of
     % pulse up to start of next (ipi): diffrentiate the various ipi for
     % different conditions
     dataWin = 0:(ExpStruct.outParams.ipi(pp)+7);%*ExpStruct.outParams.nPulses); % specify the data window (in ms) of inter pulse interval. If changed then apply changes to plotting too
     draw_dataWin = 0:ExpStruct.outParams.ipi(pp)+7;%*ExpStruct.outParams.nPulses;
     dataWinSamplingPnts = dataWin(1):dataWin(end)*srate/1000; % number of sampling points within the ipi
-    draw_dataWinSamplingPnts = draw_dataWin(1):(draw_dataWin(end)*srate/1000 + 60); %%%%% HACK!!!!!!!!!!!
+    draw_dataWinSamplingPnts = 0:post_stim_len;
 
         % Set time span of whole grid stimulation "holoWin"(in ms)
     holoTriggers = ExpStruct.outParams.nextHoloStims{1 , pp}; % when (in fs) during each trial stim laser is on
@@ -320,9 +325,9 @@ for pp = 1:nConditions % From a select Condition...
         
         for hh = 1:nHolos(pp)*this_seq_nPulses
             %tracedataWin = trace(holoTrigOn(hh):(holoTrigOn(hh)+ (draw_dataWinSamplingPnts(end)*this_seq_nPulses)));
-            tracedataWin = trace(holoTrigOn(hh)-99:(holoTrigOn(hh)+ (draw_dataWinSamplingPnts(end))));
+            tracedataWin = trace(holoTrigOn(hh) - pre_stim_len:(holoTrigOn(hh)+ (draw_dataWinSamplingPnts(end))));
             if isfield(ExpStruct,'inputsLP')
-                tracedataWin_LP = trace_LP(holoTrigOn(hh)-99:(holoTrigOn(hh)+ (draw_dataWinSamplingPnts(end))));
+                tracedataWin_LP = trace_LP(holoTrigOn(hh) - pre_stim_len:(holoTrigOn(hh)+ (draw_dataWinSamplingPnts(end))));
             end
             % trace broken down into data windows
             %disp(length(tracedataWin));
@@ -378,8 +383,8 @@ end
 % rewriting the holo structure in trials x time matrix
 
 
-pscs = zeros(ExpStruct.expParams.repeats*sum(ExpStruct.holoStimParams.nHolos(1,:)),size(draw_dataWinSamplingPnts,2)+99);
-psps = zeros(ExpStruct.expParams.repeats*sum(ExpStruct.holoStimParams.nHolos(1,:)),size(draw_dataWinSamplingPnts,2)+99);
+pscs = zeros(ExpStruct.expParams.repeats*sum(ExpStruct.holoStimParams.nHolos(1,:)),size(draw_dataWinSamplingPnts,2) + pre_stim_len );
+psps = zeros(ExpStruct.expParams.repeats*sum(ExpStruct.holoStimParams.nHolos(1,:)),size(draw_dataWinSamplingPnts,2) + pre_stim_len);
 stimulus_matrix = zeros(size(ExpStruct.holoRequest.targets,1),ExpStruct.expParams.repeats*sum(ExpStruct.holoStimParams.nHolos(1,:))); 
 
 % stimulus_matrix should be array of size (num_neurons x num_stim)
