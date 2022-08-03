@@ -391,10 +391,14 @@ end
 
 % rewriting the holo structure in trials x time matrix
 
+repeats = ExpStruct.expParams.repeats; % number of repetitions per power
+num_holos_per_power = ExpStruct.holoStimParams.nHolos(1,:); % array of length nConditions
+num_pulses_per_holo = this_seq_nPulses;
 
-pscs = zeros(ExpStruct.expParams.repeats*sum(ExpStruct.holoStimParams.nHolos(1,:)),size(draw_dataWinSamplingPnts,2) + pre_stim_len );
-psps = zeros(ExpStruct.expParams.repeats*sum(ExpStruct.holoStimParams.nHolos(1,:)),size(draw_dataWinSamplingPnts,2) + pre_stim_len);
-stimulus_matrix = zeros(size(ExpStruct.holoRequest.targets,1),ExpStruct.expParams.repeats*sum(ExpStruct.holoStimParams.nHolos(1,:))); 
+ % add one to to post + pre length tp account for frame when stim comes on
+pscs = zeros(repeats * sum(num_holos_per_power) * num_pulses_per_holo, post_stim_len + pre_stim_len + 1);
+psps = zeros(repeats * sum(num_holos_per_power) * num_pulses_per_holo, post_stim_len + pre_stim_len + 1);
+stimulus_matrix = zeros(size(ExpStruct.holoRequest.targets,1), repeats * sum(num_holos_per_power) * num_pulses_per_holo); 
 
 % stimulus_matrix should be array of size (num_neurons x num_stim)
 % each column shows the power delivered to each neuron on that stim.
@@ -405,20 +409,24 @@ stimulus_matrix = zeros(size(ExpStruct.holoRequest.targets,1),ExpStruct.expParam
 
 n=0;
 
-for i=1:nConditions
+for i = 1:nConditions
     this_power = ExpStruct.holoStimParams.powers(i)*1000;
     
-    for j=1:ExpStruct.holoStimParams.nHolos(1,i)
-    
+    roi_index = 0;
+    for j = 1:ExpStruct.holoStimParams.nHolos(1,i) * num_pulses_per_holo
+        roi_index = roi_index + 1;
+        if roi_index > num_holos_per_power(i)
+            roi_index = 1;
+        end
         if alt_roi_structure
-            [this_holo_members] = new_rois{j,:}; 
+            [this_holo_members] = new_rois{roi_index,:}; 
         elseif isfield(ExpStruct.holoRequest,'condRois')
-            [this_holo_members] = ExpStruct.holoRequest.condRois{i,1}{j,:}(1,:);  % for old code cells
+            [this_holo_members] = ExpStruct.holoRequest.condRois{i,1}{roi_index,:}(1,:);  % for old code cells
         else
-            [this_holo_members] = (ExpStruct.holoRequest.condHolos{i,1}{j,:}(1,:));
+            [this_holo_members] = (ExpStruct.holoRequest.condHolos{i,1}{roi_index,:}(1,:));
         end
         
-        for k = 1:size(datawinsSortedByHolosAllPowers{i,1}{1,j},2)%ExpStruct.expParams.repeats;
+        for k = 1:repeats
             n = n+1;
             pscs(n, :) = datawinsSortedByHolosAllPowers{i,:}{1,j}(:,k);
             if isfield(ExpStruct,'inputsLP')
@@ -427,6 +435,7 @@ for i=1:nConditions
             stimulus_matrix(this_holo_members,n)=this_power;            
             
         end
+        roi_index = roi_index + 1;
     end
 end
 
