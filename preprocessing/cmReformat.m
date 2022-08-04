@@ -414,10 +414,13 @@ for i = 1:nConditions
     
     roi_index = 0;
     for j = 1:ExpStruct.holoStimParams.nHolos(1,i) * num_pulses_per_holo
-        roi_index = roi_index + 1;
-        if roi_index > num_holos_per_power(i)
-            roi_index = 1;
+        
+        % increment roi_index every time we cycle through all pulses
+        % for a given hologram
+        if mod(j-1, num_pulses_per_holo) == 0
+            roi_index = roi_index + 1;
         end
+        
         if alt_roi_structure
             [this_holo_members] = new_rois{roi_index,:}; 
         elseif isfield(ExpStruct.holoRequest,'condRois')
@@ -435,7 +438,7 @@ for i = 1:nConditions
             stimulus_matrix(this_holo_members,n)=this_power;            
             
         end
-        roi_index = roi_index + 1;
+        
     end
 end
 
