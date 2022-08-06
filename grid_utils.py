@@ -9,6 +9,29 @@ from sklearn.linear_model import Ridge
 import matplotlib.pyplot as plt
 
 
+def sort_results(results):
+    """
+    Sort results dictionary so that items are ordered by their (xyz) position in space.
+    This is critical for comparing inferred maps between single and multispot data. 
+    We assume that the results dictionary is the results of running
+    subtract_utils.run_subtraction_pipeline
+    """
+    results = dict(results)
+    model_state = results['model_state'].item()
+    targets = results['targets']
+    N = targets.shape[0]
+
+    # ensure that targets are in the right order so that things work when reshaped
+    idxs = np.lexsort((targets[:,-1], targets[:,-2], targets[:,-3]))
+    
+    # reorder everything in results
+    for (key, value) in model_state.items():
+        if value.shape and value.shape[0] == N: # first condition ensures we don't index into zero-length tuple
+            model_state[key] = value[idxs]
+    results['model_state'] = model_state
+    results['targets'] = targets[idxs]
+
+    return results
 
 def sequential_map(vals):
     uniques = np.unique(vals)
@@ -218,8 +241,10 @@ def make_suff_stats(y,I,L):
 
 def plot_multi_means(fig, mean_maps, depth_idxs,
                      zs=None, zlabels=None, powers=None, map_names=None, cmaps='viridis',
-                     vranges=None, cbar_labels=None):
-    
+                     vranges=None, cbar_labels=None, show_powers=None):
+    if show_powers is None:
+        show_powers = True * [len(mean_maps)]
+
     # allow option to pass separate cmaps for each grid plot
     if not isinstance(cmaps, list):
         cmaps = len(mean_maps) * [cmaps]
@@ -260,13 +285,12 @@ def plot_multi_means(fig, mean_maps, depth_idxs,
 #             ax.set_frame_on(False)
 
             # optionally add labels
-            if (zlabels or zs) and col == 0:
-                if zs:
-                    ax.set_ylabel('%d ' % zs[depth_idxs[row]] + r'$\mu m $' )
-                else:
-                    ax.set_ylabel(zlabels[row])
+            if (zs is not None) and col == 0 and mean_idx == 0:
+                ax.set_ylabel('%d ' % zs[depth_idxs[row]] + r'$\mu m $' )
+            elif (zlabels is not None) and col == 0 and mean_idx == 0:
+                ax.set_ylabel(zlabels[row])
 
-            if powers is not None and row == num_planes_to_plot - 1:
+            if powers is not None and row == num_planes_to_plot - 1 and show_powers[mean_idx]:
                 ax.set_xlabel('%d mW' % powers[col], rotation=70)
                 
             im = ax.imshow(mean_map[col,:,:,depth_idxs[row]],
@@ -286,28 +310,60 @@ def denoise_pscs_in_batches(psc, denoiser, batch_size=4096):
                        for batch in np.array_split(psc, num_batches, axis=0)]
     return np.concatenate(den_psc_batched)
 
+
+def make_grid_waveforms(model_state, psc, powers, grid_dims):
+    
+    # here we assume all pixels in the grid were hit with
+    # the same powers
+    unique_powers = np.unique(powers) # powers for first plane
+    
+    psc_length = psc[0].shape[-1]
+    grid_waveforms = np.zeros((len(unique_powers), *grid_dims, psc_length)) # e.g 2, 26, 26, 5, 900
+
+    for power_idx, power in enumerate(unique_powers):
+        
+        # extract lambda and pscs for current power
+        these_stims = powers == power
+        
+        lam_curr = model_state['lam'][:, these_stims]
+        den_psc_curr = psc[these_stims, :]
+        
+        curr_waveforms = estimate_spike_waveforms(lam_curr, den_psc_curr)
+        curr_waveforms = curr_waveforms.reshape(grid_dims[0], grid_dims[1], grid_dims[2], psc_length)
+        curr_waveforms = np.swapaxes(curr_waveforms, 0, 1)
+
+        grid_waveforms[power_idx,:,:,:,:] = curr_waveforms
+        
+    return grid_waveforms
+
 def estimate_spike_waveforms(lam, den_psc):
     lr = Ridge(fit_intercept=False, alpha=1e-3)
     lr.fit(lam.T, den_psc)
     return lr.coef_.T
 
-def make_grid_latencies(grid_waveforms):
+def make_grid_latencies(grid_waveforms,
+                        onset_frac=0.1,
+                        stim_start=100,
+                        srate_khz=20):
     grid_dims = grid_waveforms.shape[:-1]
     wv_flat = np.reshape(grid_waveforms, (-1, 900))
     max_vals = np.max(wv_flat, -1)
 
     # create mask which is 1 whenever a PSC is above the threshold
-    mask = wv_flat >= 0.1 * max_vals[...,None]
+    mask = wv_flat >= onset_frac * max_vals[...,None]
 
     # use argmax to get the first nonzero entry per row
     first_nonzero_idxs = (mask).argmax(axis=-1)
 
     # convert index to time in milliseconds
-    sample_khz = 20
-    samples_per_sec = sample_khz * 1e3
-    secs_per_sample = 1 / samples_per_sec
+    secs_per_sample = 1 / srate_khz
     msecs_per_sample = secs_per_sample * 1e3
     latencies_flat = msecs_per_sample * first_nonzero_idxs
+
+    # calc amount of time before stim,
+    # subtract it off.
+    pre_stim_time_ms = msecs_per_sample * stim_start
+    latencies_flat -= pre_stim_time_ms
 
     return latencies_flat.reshape(*grid_dims)
 
