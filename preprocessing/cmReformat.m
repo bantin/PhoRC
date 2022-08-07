@@ -1,4 +1,4 @@
-function [pscs, psps, stimulus_matrix, targets, img, pipette_position] = cmReformat(mat_contents, savepath, config)
+function [pscs, psps, stimulus_matrix, targets, img, pipette_position, num_pulses_per_holo] = cmReformat(mat_contents, savepath, config)
     
 if ~isfield(mat_contents, 'ExpStruct') % working with weird structure
     ExpStruct = mat_contents.ExpStruct2;
@@ -466,7 +466,7 @@ else
     pipette_position = NaN;
 end
 
-save(savepath, 'pscs', 'psps', 'stimulus_matrix', 'targets', 'img', 'pipette_position', '-v7.3');
+save(savepath, 'pscs', 'psps', 'stimulus_matrix', 'targets', 'img', 'pipette_position', 'num_pulses_per_holo', '-v7.3');
 
 end
 %  figure(1)           

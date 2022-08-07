@@ -51,13 +51,13 @@ def parse_fit_options(argseq):
 
 if __name__ == "__main__":
     args = parse_fit_options(sys.argv[1:]) 
-    f = h5py.File(args.dataset_path)
     dset_name = os.path.basename(args.dataset_path).split('.')[0]
 
-    pscs = np.array(f['pscs']).T
-    stim_mat = np.array(f['stimulus_matrix']).T
-    targets = np.array(f['targets']).T
-    powers = np.max(stim_mat, axis=0)
+    with h5py.File(args.dataset_path) as f:
+        pscs = np.array(f['pscs']).T
+        stim_mat = np.array(f['stimulus_matrix']).T
+        targets = np.array(f['targets']).T
+        powers = np.max(stim_mat, axis=0)
 
     # get rid of any trials where we didn't actually stim
     good_idxs = (powers > 0)

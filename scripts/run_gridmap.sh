@@ -15,8 +15,9 @@ source ~/.bashrc
 conda activate circuitmap
 ml cuda/11.2.0 cudnn/8.2.1.32
 
-python run_gridmap.py --msrmp 0.3 --iters 50 --dataset-path $1 --demixer-checkpoint "/home/ba2617/circuit_mapping/demixers/nwd_ee_ChroME1.ckpt"
+stat $1
+stat $2
+python run_gridmap.py --msrmp 0.3 --iters 50 --dataset-path $1 --demixer-checkpoint $2 --run-caviar --subtract-pc
 
-LINE=$(sed -n "$SLURM_ARRAY_TASK_ID"p /share/ctn/users/ba2617/mbcs_grids/filelist.txt )
 
 # End of script
