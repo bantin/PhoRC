@@ -345,10 +345,12 @@ def make_grid_latencies(grid_waveforms,
                         onset_frac=0.1,
                         stim_start=100,
                         srate_khz=20):
+
     grid_dims = grid_waveforms.shape[:-1]
     wv_flat = np.reshape(grid_waveforms, (-1, 900))
     max_vals = np.max(wv_flat, -1)
-
+    disconnected_idx = (np.sum(wv_flat, axis=-1) == 0)
+        
     # create mask which is 1 whenever a PSC is above the threshold
     mask = wv_flat >= onset_frac * max_vals[...,None]
 
@@ -356,12 +358,15 @@ def make_grid_latencies(grid_waveforms,
     first_nonzero_idxs = (mask).argmax(axis=-1)
 
     # convert index to time in milliseconds
-    secs_per_sample = 1 / srate_khz
+    secs_per_sample = 1 / (srate_khz * 1e3)
     msecs_per_sample = secs_per_sample * 1e3
     latencies_flat = msecs_per_sample * first_nonzero_idxs
 
-    # calc amount of time before stim,
-    # subtract it off.
+    # set disconnected idxs to nan for plotting convenience
+    latencies_flat[disconnected_idx] = np.nan
+    
+    # calc amount of time before stim, subtract it off
+    # to account for pre-stim context
     pre_stim_time_ms = msecs_per_sample * stim_start
     latencies_flat -= pre_stim_time_ms
 
