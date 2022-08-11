@@ -338,7 +338,6 @@ def make_grid_waveforms(model_state, psc, powers, grid_dims):
         curr_waveforms = estimate_spike_waveforms(lam_curr, den_psc_curr)
         curr_waveforms = curr_waveforms.reshape(
             grid_dims[0], grid_dims[1], grid_dims[2], psc_length)
-        curr_waveforms = np.swapaxes(curr_waveforms, 0, 1)
 
         grid_waveforms[power_idx, :, :, :, :] = curr_waveforms
 
