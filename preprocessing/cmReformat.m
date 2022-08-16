@@ -16,7 +16,7 @@ pre_stim_len = config.pre_stim_len;
 
 % Check whether the target structure is faulty and restructure if so
 % Prefer to use the actualTargets field if it's there.
-if isfield(ExpStruct.holoRequest, 'actualtargets')
+if isfield(ExpStruct.holoRequest, 'actualtargets') && ~config.use_targets
     orig_targets = ExpStruct.holoRequest.actualtargets;
 else
     orig_targets = ExpStruct.holoRequest.targets;
@@ -206,7 +206,7 @@ end
 
 ExpStruct.trialCond = ExpStruct.trialCond(1, 1:expt_crop_time); %
  
-for pp = 1:nConditions 
+for pp = unique(ExpStruct.trialCond)
         
     inputs{1, pp} = ExpStruct.inputs(find(ExpStruct.trialCond==pp)); % rearrange the trials based on powers
     inputsIndices{1, pp} = find(ExpStruct.trialCond==pp);
@@ -257,7 +257,7 @@ datawinsSortedByHolosAllPowers_LP = cell(nConditions, 1);
 minmax_window = 7000;
 gauss_window = 200;
 
-for pp = 1:nConditions % From a select Condition...
+for pp = unique(ExpStruct.trialCond) % From a select Condition...
     
     this_seq_nPulses=ExpStruct.outParams.nPulses(1,pp);
     datawinsSortedByHolosPerPower = cell(1, nHolos(pp)*this_seq_nPulses); %cell for datawindows sorted by true hologram order, and rounded up across trials and powers
@@ -390,15 +390,19 @@ end
 %%
 
 % rewriting the holo structure in trials x time matrix
-
-repeats = ExpStruct.expParams.repeats; % number of repetitions per power
 num_holos_per_power = ExpStruct.holoStimParams.nHolos(1,:); % array of length nConditions
 num_pulses_per_holo = this_seq_nPulses;
 
- % add one to to post + pre length tp account for frame when stim comes on
-pscs = zeros(repeats * sum(num_holos_per_power) * num_pulses_per_holo, post_stim_len + pre_stim_len + 1);
-psps = zeros(repeats * sum(num_holos_per_power) * num_pulses_per_holo, post_stim_len + pre_stim_len + 1);
-stimulus_matrix = zeros(size(ExpStruct.holoRequest.targets,1), repeats * sum(num_holos_per_power) * num_pulses_per_holo); 
+ 
+% Account for the case where certain powers have more repeats than others
+unique_conds = unique(ExpStruct.trialCond);
+repeats_per_cond = hist(ExpStruct.trialCond, unique_conds);
+
+% When creating the arrays below, we 
+% add one to to post + pre length to account for frame when stim comes on.
+pscs = zeros(sum(repeats_per_cond .* num_holos_per_power) * num_pulses_per_holo, post_stim_len + pre_stim_len + 1);
+psps = zeros(sum(repeats_per_cond .* num_holos_per_power) * num_pulses_per_holo, post_stim_len + pre_stim_len + 1);
+stimulus_matrix = zeros(size(ExpStruct.holoRequest.targets,1), sum(repeats_per_cond .* num_holos_per_power) * num_pulses_per_holo); 
 
 % stimulus_matrix should be array of size (num_neurons x num_stim)
 % each column shows the power delivered to each neuron on that stim.
@@ -429,7 +433,7 @@ for i = 1:nConditions
             [this_holo_members] = (ExpStruct.holoRequest.condHolos{i,1}{roi_index,:}(1,:));
         end
         
-        for k = 1:repeats
+        for k = 1:repeats_per_cond(i)
             n = n+1;
             pscs(n, :) = datawinsSortedByHolosAllPowers{i,:}{1,j}(:,k);
             if isfield(ExpStruct,'inputsLP')
