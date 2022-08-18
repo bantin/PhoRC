@@ -6,6 +6,7 @@ import jax.numpy as jnp
 import jax.random as jrand
 import jax.scipy as jsp
 import circuitmap as cm
+jax.config.update('jax_platform_name', 'cpu')
 
 def _photocurrent_shape(
     O_inf, R_inf, tau_o, tau_r, g,  # shape params
@@ -97,8 +98,6 @@ def _sample_gp(key, pcs, gp_lengthscale=25, gp_scale=0.01, ):
     K = jnp.exp(-D**2/(2 * gp_lengthscale**2)) + 1e-4 * jnp.eye(trial_dur)
     mean = jnp.zeros(trial_dur, dtype=jnp.float64)
     return gp_scale * jrand.multivariate_normal(key, mean=mean, cov=K, shape=(n_samples,))
-
-
 sample_gp = jax.jit(_sample_gp)
 
 
@@ -149,42 +148,95 @@ def _sample_experiment_noise_and_scales(
     return observations, targets
 
 
-def gen_photocurrent_data(
-    key,
-    trial_dur=900,
-    num_expts=1000,
-    min_traces_per_expt=100,
-    max_traces_per_expt=1000,
-    photocurrent_scale_min=0.05,
-    photocurrent_scale_max=1.0,
-    psc_scale_max=1.0,
-    psc_scale_min=0.01,
-    psc_generation_kwargs=None,
-    dtype=np.float32,
+def sample_photocurrent_expts_batch(
+    key, num_expts, num_traces_per_expt, trial_dur,
+    pc_scale_range=(0.05, 2.0),
+    iid_noise_scale_range=(0.01, 0.05),
+    gp_scale_range=(0.01, 2.0),
     ):
+    keys = jrand.split(key, num=num_expts)
 
-    # Generate length (in traces) for each experiment
-    exp_lengths = jrand.randint(
-        key,
-        minval=min_traces_per_expt,
-        maxval=max_traces_per_expt,
-        size=num_expts)
+    # generate all photocurrent templates.
+    # We create a separate function to sample each of previous, current, and
+    # next PSC shapes.
+    sample_photocurrent_params_batch = jax.vmap(_sample_photocurrent_params)
+    prev_photocurrent_shape_batch = jax.vmap(
+        lambda params: _photocurrent_shape(*params, t_on=-7.0, t_off=-2.0),
+    )
+    curr_photocurrent_shape_batch = jax.vmap(
+        lambda params: _photocurrent_shape(*params, t_on=5.0, t_off=10.0),
+    )
+    next_photocurrent_shape_batch = jax.vmap(
+        lambda params: _photocurrent_shape(*params, t_on=38.0, t_off=43.0),
+    )
 
-    # generate all psc traces from neural demixer.
+    pc_shape_params = sample_photocurrent_params_batch(keys)
+
+    prev_pc_shapes = prev_photocurrent_shape_batch(
+        pc_shape_params,
+    )[0]
+
+    curr_pc_shapes = curr_photocurrent_shape_batch(
+        pc_shape_params,
+    )[0]
+
+    next_pc_shapes = next_photocurrent_shape_batch(
+        pc_shape_params,
+    )[0]
+
+    # Generate all psc traces from neural demixer.
     # This is faster than calling it separately many times.
-    if psc_generation_kwargs is None:
-        psc_generation_kwargs = dict()
+    # Here, we generate noiseless PSC traces, since we will add noise
+    # the summed traces (PCs + PSCs) at once.
     demixer = cm.NeuralDemixer()
     demixer.generate_training_data(
-        size=np.sum(exp_lengths), training_fraction=1.0, **psc_generation_kwargs)
+        size=num_expts * num_traces_per_expt,
+        training_fraction=1.0,
+        noise_std_upper=0.0,
+        noise_std_lower=0.0,
+        gp_scale=0.0,
+    )
     pscs, _ = demixer.training_data
+    pscs_batched = pscs.reshape(num_expts, num_traces_per_expt, trial_dur)
 
-    # generate all photocurrent templates
+    sample_experiment_noise_and_scales_batch = jax.vmap(
+        _sample_experiment_noise_and_scales,
+        in_axes=(0, 0, 0, 0, 0, None, 0, None, None, None, None, 0, 0),
+    )
+
+    # mimic varying opsin / noise levels by experiment:
+    # each experiment will have a different maximum photocurrent scale.
+    max_pc_scales = jrand.uniform(
+        key, minval=pc_scale_range[0], maxval=pc_scale_range[1],
+        shape=(num_expts,)
+    )
+    gp_scales = jrand.uniform(
+        key, minval=gp_scale_range[0], maxval=gp_scale_range[1],
+        shape=(num_expts,)
+    )
+    iid_noise_scales = jrand.uniform(
+        key, minval=iid_noise_scale_range[0], maxval=iid_noise_scale_range[1],
+        shape=(num_expts,)
+
+    )
     
-
-    # For each experiment, we generate a group of traces that share a common photocurrent component.
-    # Some random fraction of these will _not_ have photocurrent present.
-    for i in tqdm.trange(num_expts):
-
-        
-    return expts
+    min_pc_scale = 0.05
+    min_pc_fraction = 0.1
+    max_pc_fraction = 0.5
+    prev_pc_fraction = 0.1
+    gp_lengthscale = 50
+    return sample_experiment_noise_and_scales_batch(
+        keys,
+        curr_pc_shapes,
+        prev_pc_shapes,
+        next_pc_shapes,
+        pscs_batched,
+        min_pc_scale,
+        max_pc_scales,
+        min_pc_fraction,
+        max_pc_fraction,
+        prev_pc_fraction,
+        gp_lengthscale,
+        gp_scales,
+        iid_noise_scales,
+    )
