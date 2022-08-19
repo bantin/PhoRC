@@ -143,7 +143,7 @@ def _sample_experiment_noise_and_scales(
     iid_noise = iid_noise_scale * \
         jrand.normal(keys[3], shape=(num_traces, trial_dur))
     targets = cur_pcs
-    observations = prev_pcs + cur_pcs + next_pcs + iid_noise + gp_noise
+    observations = prev_pcs + cur_pcs + next_pcs + iid_noise + gp_noise + psc_background
 
     return observations, targets
 

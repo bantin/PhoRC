@@ -98,6 +98,10 @@ class Subtractr(pl.LightningModule):
         # form rank-1 output
         return torch.outer(torch.squeeze(multipliers), torch.squeeze(waveform))
 
+
+
+        
+
     def configure_optimizers(self):
         return torch.optim.SGD(self.parameters(), lr=1e-2)
 
@@ -163,7 +167,7 @@ class Subtractr(pl.LightningModule):
             args.num_traces_per_expt,
             trial_dur=900,
             pc_scale_range=(args.pc_scale_min, args.pc_scale_max),
-            gp_scale_range=(args.gp_scale_min, args.pc_scale_max),
+            gp_scale_range=(args.gp_scale_min, args.gp_scale_max),
             iid_noise_scale_range=(
                 args.iid_noise_scale_min, args.iid_noise_scale_max),
         )
@@ -174,7 +178,7 @@ class Subtractr(pl.LightningModule):
             args.num_traces_per_expt,
             trial_dur=900,
             pc_scale_range=(args.pc_scale_min, args.pc_scale_max),
-            gp_scale_range=(args.gp_scale_min, args.pc_scale_max),
+            gp_scale_range=(args.gp_scale_min, args.gp_scale_max),
             iid_noise_scale_range=(
                 args.iid_noise_scale_min, args.iid_noise_scale_max),
         )
@@ -316,14 +320,14 @@ def parse_args(argseq):
     parser.add_argument('--batch_size', type=int, default=32)
     parser.add_argument('--data_save_path', type=str, default="")
     parser.add_argument('--data_load_path', type=str, default="")
-    parser.add_argument("--psc_generation_kwargs", dest="psc_generation_kwargs", action=StoreDictKeyPair,
-                        default=dict(gp_scale=0.045, delta_lower=160,
-                                     delta_upper=400, next_delta_lower=400, next_delta_upper=899,
-                                     prev_delta_upper=150, tau_diff_lower=60,
-                                     tau_diff_upper=120, tau_r_lower=10,
-                                     tau_r_upper=40, noise_std_lower=0.001,
-                                     noise_std_upper=0.02, gp_lengthscale=45, sigma=30)
-                        )
+    # parser.add_argument("--psc_generation_kwargs", dest="psc_generation_kwargs", action=StoreDictKeyPair,
+    #                     default=dict(gp_scale=0.045, delta_lower=160,
+    #                                  delta_upper=400, next_delta_lower=400, next_delta_upper=899,
+    #                                  prev_delta_upper=150, tau_diff_lower=60,
+    #                                  tau_diff_upper=120, tau_r_lower=10,
+    #                                  tau_r_upper=40, noise_std_lower=0.001,
+    #                                  noise_std_upper=0.02, gp_lengthscale=45, sigma=30)
+    #                     )
 
     parser = Subtractr.add_model_specific_args(parser)
     parser = pl.Trainer.add_argparse_args(parser)
