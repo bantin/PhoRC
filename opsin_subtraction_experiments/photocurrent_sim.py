@@ -31,7 +31,7 @@ def _photocurrent_shape(
     mask_stim_off = jnp.where((t > t_off), 1.0, 0.0)
 
     # get index where stim is off
-    index_t_off = time_zero_idx + int(jnp.round(t_off / msecs_per_sample))
+    index_t_off = time_zero_idx + int(t_off // msecs_per_sample)
 
     O_on = mask_stim_on * (O_inf - (O_inf - O_0) *
                            jnp.exp(- (t - t_on)/(tau_o)))
@@ -57,15 +57,30 @@ def _photocurrent_shape(
             R_off[time_zero_idx:time_zero_idx + window_len])
 
 
-def _sample_photocurrent_params(key):
-    keys = jax.random.split(key, num=4)
+def _sample_photocurrent_params(key,
+    t_on_min=5.0,
+    t_on_max=7.0,
+    t_off_min=10.0,
+    t_off_max=11.0,
+    O_inf_min=0.3,
+    O_inf_max=1.0,
+    R_inf_min=0.3,
+    R_inf_max=1.0,
+    tau_o_min=5,
+    tau_o_max=14,
+    tau_r_min=25,
+    tau_r_max=30,):
+    keys = jrand.split(key, num=6)
 
-    O_inf, R_inf = jrand.uniform(keys[0], minval=0.3, maxval=1.0, shape=(2,))
-    tau_o = jrand.uniform(keys[1], minval=8, maxval=20)
-    tau_r = jrand.uniform(keys[2], minval=3, maxval=12)
+    t_on  = jrand.uniform(keys[0], minval=t_on_min, maxval=t_on_max)
+    t_off  = jrand.uniform(keys[1], minval=t_off_min, maxval=t_off_max)
+    O_inf = jrand.uniform(keys[2], minval=O_inf_min, maxval=O_inf_max)
+    R_inf = jrand.uniform(keys[3], minval=R_inf_min, maxval=R_inf_max)
+    tau_o = jrand.uniform(keys[4], minval=tau_o_min, maxval=tau_o_max)
+    tau_r = jrand.uniform(keys[5], minval=tau_r_min, maxval=tau_r_max)
     g = 1.0
 
-    return O_inf, R_inf, tau_o, tau_r, g
+    return O_inf, R_inf, tau_o, tau_r, g, t_on, t_off,
 
 
 def _sample_scales(key, min_pc_fraction, max_pc_fraction,
@@ -148,11 +163,9 @@ def _sample_experiment_noise_and_scales(
     return observations, targets
 
 
-def sample_photocurrent_expts_batch(
-    key, num_expts, num_traces_per_expt, trial_dur,
+def sample_photocurrent_shapes(
+    key, num_expts, trial_dur,
     pc_scale_range=(0.05, 2.0),
-    iid_noise_scale_range=(0.01, 0.05),
-    gp_scale_range=(0.01, 2.0),
     ):
     keys = jrand.split(key, num=num_expts)
 
@@ -184,6 +197,24 @@ def sample_photocurrent_expts_batch(
         pc_shape_params,
     )[0]
 
+    return prev_pc_shapes, curr_pc_shapes, next_pc_shapes
+
+
+def sample_photocurrent_expts_batch(
+    key, num_expts, num_traces_per_expt, trial_dur,
+    pc_scale_range=(0.05, 2.0),
+    iid_noise_scale_range=(0.01, 0.05),
+    gp_scale_range=(0.01, 2.0),
+    ):
+
+    # generate all photocurrent templates.
+    # We create a separate function to sample each of previous, current, and
+    # next PSC shapes.
+    prev_pc_shapes, curr_pc_shapes, next_pc_shapes = \
+        sample_photocurrent_shapes(
+            key, num_expts, trial_dur, pc_scale_range=pc_scale_range)
+    key = jax.random.fold_in(key, 0)
+
     # Generate all psc traces from neural demixer.
     # This is faster than calling it separately many times.
     # Here, we generate noiseless PSC traces, since we will add noise
@@ -206,14 +237,17 @@ def sample_photocurrent_expts_batch(
 
     # mimic varying opsin / noise levels by experiment:
     # each experiment will have a different maximum photocurrent scale.
+    key = jrand.fold_in(key, 0)
     max_pc_scales = jrand.uniform(
         key, minval=pc_scale_range[0], maxval=pc_scale_range[1],
         shape=(num_expts,)
     )
+    key = jrand.fold_in(key, 0)
     gp_scales = jrand.uniform(
         key, minval=gp_scale_range[0], maxval=gp_scale_range[1],
         shape=(num_expts,)
     )
+    key = jrand.fold_in(key, 0)
     iid_noise_scales = jrand.uniform(
         key, minval=iid_noise_scale_range[0], maxval=iid_noise_scale_range[1],
         shape=(num_expts,)
@@ -225,6 +259,7 @@ def sample_photocurrent_expts_batch(
     max_pc_fraction = 0.5
     prev_pc_fraction = 0.1
     gp_lengthscale = 50
+    keys = jrand.split(key, num=num_expts)
     return sample_experiment_noise_and_scales_batch(
         keys,
         curr_pc_shapes,
