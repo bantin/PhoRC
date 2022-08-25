@@ -41,7 +41,7 @@ class Subtractr(pl.LightningModule):
         parser.add_argument('--min_pc_fraction', type=float, default=0.1)
         parser.add_argument('--max_pc_fraction', type=float, default=1.0)
         parser.add_argument('--gp_lengthscale', type=float, default=50.0)
-        parser.add_argument('--use_ls_solve', type=bool, default=False)
+        parser.add_argument('--use_ls_solve', default=False, action=argparse.BooleanOptionalAction)
         
         # photocurrent shape args
         parser.add_argument('--O_inf_min', type=float, default=0.3)
@@ -65,9 +65,10 @@ class Subtractr(pl.LightningModule):
         # save hyperparms stored in args, if present
         self.save_hyperparameters()
         if args.use_ls_solve:
-            self.hparams.use_ls_solve = True
+            print('Using least squares solve in forward pass.')
+            self.use_ls_solve = True
         else:
-            self.hparams.use_ls_solve = False
+            self.use_ls_solve = False
 
         # U-NET for creating temporal waveform
         self.dblock1 = DownsamplingBlock(1, 16, 32, 2)
@@ -120,8 +121,9 @@ class Subtractr(pl.LightningModule):
         # senc4 should have dimensions N x 1 x T_small
         u = torch.nn.functional.relu(torch.sum(senc4, dim=-1))
 
-        if self.hparams.use_ls_solve:
+        if self.use_ls_solve:
             v = torch.linalg.lstsq(u, torch.squeeze(x))[0]
+
         # form rank-1 output
         return torch.outer(torch.squeeze(u), torch.squeeze(v))
 
