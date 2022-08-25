@@ -1,6 +1,5 @@
 import numpy as np
-import matplotlib.pyplot as plt
-from functools import partial
+import functools
 import jax
 import jax.numpy as jnp
 import jax.random as jrand
@@ -11,6 +10,7 @@ jax.config.update('jax_platform_name', 'cpu')
 def _photocurrent_shape(
     O_inf, R_inf, tau_o, tau_r, g,  # shape params
     t_on, t_off,  # timing params
+    t=None, time_zero_idx=None,
     O_0=0.0, R_0=1.0,
     window_len=900, msecs_per_sample=0.05, conv_window_len=25,
 ):
@@ -19,19 +19,19 @@ def _photocurrent_shape(
     # we need to work with a larger window and then crop later.
     # We also pad the window by conv_window_len to avoid zero
     # padding issues during the convolution step.
-    left_bound = jnp.minimum(0, t_on / msecs_per_sample)
-    right_bound = jnp.abs(left_bound) + window_len + conv_window_len
-    t = jnp.arange(left_bound, right_bound) * msecs_per_sample
+    # left_bound = jnp.minimum(0, t_on / msecs_per_sample)
+    # right_bound = jnp.abs(left_bound) + window_len + conv_window_len
+    # t = jnp.arange(left_bound, right_bound) * msecs_per_sample
 
-    # get the index where t=0 occurs. This is the beginning of the
-    # window we'll return to the user.
-    time_zero_idx = int(-jnp.minimum(t_on / msecs_per_sample, 0))
+    # # get the index where t=0 occurs. This is the beginning of the
+    # # window we'll return to the user.
+    # time_zero_idx = int(-jnp.minimum(t_on / msecs_per_sample, 0))
 
     mask_stim_on = jnp.where((t >= t_on) & (t <= t_off), 1.0, 0.0)
     mask_stim_off = jnp.where((t > t_off), 1.0, 0.0)
 
     # get index where stim is off
-    index_t_off = time_zero_idx + int(t_off // msecs_per_sample)
+    index_t_off = time_zero_idx + jnp.array(t_off // msecs_per_sample, dtype=int)
 
     O_on = mask_stim_on * (O_inf - (O_inf - O_0) *
                            jnp.exp(- (t - t_on)/(tau_o)))
@@ -162,40 +162,73 @@ def _sample_experiment_noise_and_scales(
 
     return observations, targets
 
+def _default_pc_shape_params():
+    return dict(
+        # shape params
+        O_inf_min=0.3,
+        O_inf_max=1.0,
+        R_inf_min=0.3,
+        R_inf_max=1.0,
+        tau_o_min=5,
+        tau_o_max=14,
+        tau_r_min=25,
+        tau_r_max=30,
+    )
 
 def sample_photocurrent_shapes(
-    key, num_expts, trial_dur,
-    pc_scale_range=(0.05, 2.0),
+        key, num_expts,
+        onset_jitter_ms=2.0,
+        msecs_per_sample=0.05,
+        tstart=-10.0,
+        tend=45.0,
+        time_zero_idx: int = 200,
+        pc_shape_params=None,
     ):
     keys = jrand.split(key, num=num_expts)
+    if pc_shape_params is None:
+        pc_shape_params = _default_pc_shape_params()
 
     # generate all photocurrent templates.
     # We create a separate function to sample each of previous, current, and
     # next PSC shapes.
-    sample_photocurrent_params_batch = jax.vmap(_sample_photocurrent_params)
-    prev_photocurrent_shape_batch = jax.vmap(
-        lambda params: _photocurrent_shape(*params, t_on=-7.0, t_off=-2.0),
+    prev_pc_params = jax.vmap(
+        functools.partial(
+            _sample_photocurrent_params,
+            **pc_shape_params,
+            t_on_min=-7.0, t_on_max=-7.0 + onset_jitter_ms,
+            t_off_min=-2.0, t_off_max=-2.0 + onset_jitter_ms,
+        )
+    )(keys)
+    curr_pc_params = jax.vmap(
+        functools.partial(
+            _sample_photocurrent_params,
+            **pc_shape_params,
+            t_on_min=5.0, t_on_max=5.0 + onset_jitter_ms,
+            t_off_min=10.0, t_off_max=10.0 + onset_jitter_ms,
+        )
+    )(keys)
+    next_pc_params = jax.vmap(
+        functools.partial(
+            _sample_photocurrent_params,
+            **pc_shape_params,
+            t_on_min=38.0, t_on_max=38.0 + onset_jitter_ms,
+            t_off_min=43.0, t_off_max=43.0 + onset_jitter_ms,
+        )
+    )(keys)
+    
+    # Note that we simulate using a longer window than we'll eventually use.
+    time = jnp.arange(tstart / msecs_per_sample, tend / msecs_per_sample) * msecs_per_sample
+    photocurrent_shape = jax.vmap(
+        functools.partial(
+            _photocurrent_shape,
+            t=time,
+            time_zero_idx=time_zero_idx,
+        ),
+        in_axes=(0, 0, 0, 0, 0, 0, 0)
     )
-    curr_photocurrent_shape_batch = jax.vmap(
-        lambda params: _photocurrent_shape(*params, t_on=5.0, t_off=10.0),
-    )
-    next_photocurrent_shape_batch = jax.vmap(
-        lambda params: _photocurrent_shape(*params, t_on=38.0, t_off=43.0),
-    )
-
-    pc_shape_params = sample_photocurrent_params_batch(keys)
-
-    prev_pc_shapes = prev_photocurrent_shape_batch(
-        pc_shape_params,
-    )[0]
-
-    curr_pc_shapes = curr_photocurrent_shape_batch(
-        pc_shape_params,
-    )[0]
-
-    next_pc_shapes = next_photocurrent_shape_batch(
-        pc_shape_params,
-    )[0]
+    prev_pc_shapes = photocurrent_shape(*prev_pc_params)[0]
+    curr_pc_shapes = photocurrent_shape(*curr_pc_params)[0]
+    next_pc_shapes = photocurrent_shape(*next_pc_params)[0]
 
     return prev_pc_shapes, curr_pc_shapes, next_pc_shapes
 
