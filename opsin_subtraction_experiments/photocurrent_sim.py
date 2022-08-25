@@ -179,6 +179,7 @@ def _default_pc_shape_params():
 def sample_photocurrent_shapes(
         key, num_expts,
         onset_jitter_ms=2.0,
+        onset_latency_ms=0.2,
         msecs_per_sample=0.05,
         tstart=-10.0,
         tend=45.0,
@@ -196,24 +197,24 @@ def sample_photocurrent_shapes(
         functools.partial(
             _sample_photocurrent_params,
             **pc_shape_params,
-            t_on_min=-7.0, t_on_max=-7.0 + onset_jitter_ms,
-            t_off_min=-2.0, t_off_max=-2.0 + onset_jitter_ms,
+            t_on_min=-7.0 + onset_latency_ms, t_on_max=-7.0 + onset_latency_ms + onset_jitter_ms,
+            t_off_min=-2.0 + onset_latency_ms, t_off_max=-2.0 + onset_latency_ms + onset_jitter_ms,
         )
     )(keys)
     curr_pc_params = jax.vmap(
         functools.partial(
             _sample_photocurrent_params,
             **pc_shape_params,
-            t_on_min=5.0, t_on_max=5.0 + onset_jitter_ms,
-            t_off_min=10.0, t_off_max=10.0 + onset_jitter_ms,
+            t_on_min=5.0 + onset_latency_ms, t_on_max=5.0 + onset_latency_ms + onset_jitter_ms,
+            t_off_min=10.0 + onset_latency_ms, t_off_max=10.0 + onset_latency_ms + onset_jitter_ms,
         )
     )(keys)
     next_pc_params = jax.vmap(
         functools.partial(
             _sample_photocurrent_params,
             **pc_shape_params,
-            t_on_min=38.0, t_on_max=38.0 + onset_jitter_ms,
-            t_off_min=43.0, t_off_max=43.0 + onset_jitter_ms,
+            t_on_min=38.0 + onset_latency_ms, t_on_max=38.0 + onset_latency_ms + onset_jitter_ms,
+            t_off_min=43.0 + onset_latency_ms, t_off_max=43.0 + onset_latency_ms + onset_jitter_ms,
         )
     )(keys)
     
@@ -237,16 +238,31 @@ def sample_photocurrent_shapes(
 def sample_photocurrent_expts_batch(
     key, num_expts, num_traces_per_expt, trial_dur,
     pc_scale_range=(0.05, 2.0),
+    onset_jitter_ms=1.0,
+    onset_latency_ms=0.2,
+    pc_shape_params=None,
     iid_noise_scale_range=(0.01, 0.05),
     gp_scale_range=(0.01, 2.0),
+    min_pc_scale = 0.05,
+    min_pc_fraction = 0.1,
+    max_pc_fraction = 0.9,
+    prev_pc_fraction = 0.1,
+    gp_lengthscale = 50,
     ):
+
+    if pc_shape_params is None:
+        pc_shape_params = _default_pc_shape_params()
 
     # generate all photocurrent templates.
     # We create a separate function to sample each of previous, current, and
     # next PSC shapes.
     prev_pc_shapes, curr_pc_shapes, next_pc_shapes = \
         sample_photocurrent_shapes(
-            key, num_expts, trial_dur, pc_scale_range=pc_scale_range)
+            key,
+            num_expts,
+            onset_jitter_ms=onset_jitter_ms,
+            onset_latency_ms=onset_latency_ms,
+            pc_shape_params=pc_shape_params)
     key = jax.random.fold_in(key, 0)
 
     # Generate all psc traces from neural demixer.
@@ -288,11 +304,6 @@ def sample_photocurrent_expts_batch(
 
     )
     
-    min_pc_scale = 0.05
-    min_pc_fraction = 0.1
-    max_pc_fraction = 0.5
-    prev_pc_fraction = 0.1
-    gp_lengthscale = 50
     keys = jrand.split(key, num=num_expts)
     return sample_experiment_noise_and_scales_batch(
         keys,

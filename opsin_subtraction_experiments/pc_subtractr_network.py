@@ -15,6 +15,7 @@ from argparse import ArgumentParser
 import photocurrent_sim
 import jax
 import jax.random as jrand
+from itertools import cycle
 jax.config.update('jax_platform_name', 'cpu')
 
 
@@ -22,6 +23,7 @@ class Subtractr(pl.LightningModule):
     @staticmethod
     def add_model_specific_args(parent_parser):
         parser = parent_parser.add_argument_group("Subtractr")
+        parser.add_argument('--learning_rate', type=float, default=1e-3)
         parser.add_argument('--num_train', type=int, default=1000)
         parser.add_argument('--num_test', type=int, default=100)
         parser.add_argument('--trial_dur', type=int, default=900)
@@ -36,6 +38,25 @@ class Subtractr(pl.LightningModule):
         parser.add_argument('--gp_scale_max', type=float, default=0.2)
         parser.add_argument('--iid_noise_scale_min', type=float, default=0.01)
         parser.add_argument('--iid_noise_scale_max', type=float, default=0.1)
+        parser.add_argument('--min_pc_fraction', type=float, default=0.1)
+        parser.add_argument('--max_pc_fraction', type=float, default=1.0)
+        parser.add_argument('--gp_lengthscale', type=float, default=50.0)
+        parser.add_argument('--use_ls_solve', type=bool, default=False)
+        
+        # photocurrent shape args
+        parser.add_argument('--O_inf_min', type=float, default=0.3)
+        parser.add_argument('--O_inf_max', type=float, default=1.0)
+        parser.add_argument('--R_inf_min', type=float, default=0.3)
+        parser.add_argument('--R_inf_max', type=float, default=1.0)
+        parser.add_argument('--tau_o_min', type=float, default=5)
+        parser.add_argument('--tau_o_max', type=float, default=7)
+        parser.add_argument('--tau_r_min', type=float, default=26)
+        parser.add_argument('--tau_r_max', type=float, default=29)
+
+        # photocurrent timing args
+        parser.add_argument('--onset_jitter_ms', type=float, default=1.0)
+        parser.add_argument('--onset_latency_ms', type=float, default=0.2)
+        
         return parent_parser
 
     def __init__(self, args=None):
@@ -43,6 +64,10 @@ class Subtractr(pl.LightningModule):
 
         # save hyperparms stored in args, if present
         self.save_hyperparameters()
+        if args.use_ls_solve:
+            self.hparams.use_ls_solve = True
+        else:
+            self.hparams.use_ls_solve = False
 
         # U-NET for creating temporal waveform
         self.dblock1 = DownsamplingBlock(1, 16, 32, 2)
@@ -82,8 +107,8 @@ class Subtractr(pl.LightningModule):
         dec4 = self.ublock4(dec3, interp_size=x.shape[-1])
 
         # Final conv layer
-        waveform = self.conv(dec4)
-        waveform_broadcast = torch.broadcast_to(waveform, (N, 1, T))
+        v = self.conv(dec4)
+        waveform_broadcast = torch.broadcast_to(v, (N, 1, T))
 
         # Use encoder and waveform to create scalar for each input trace
         waveform_and_trace = torch.cat((waveform_broadcast, x), dim=1) # concat along channels
@@ -93,10 +118,12 @@ class Subtractr(pl.LightningModule):
         senc4 = self.scalar_block4(senc3)
 
         # senc4 should have dimensions N x 1 x T_small
-        multipliers = torch.nn.functional.relu(torch.sum(senc4, dim=-1))
+        u = torch.nn.functional.relu(torch.sum(senc4, dim=-1))
 
+        if self.hparams.use_ls_solve:
+            v = torch.linalg.lstsq(u, torch.squeeze(x))[0]
         # form rank-1 output
-        return torch.outer(torch.squeeze(multipliers), torch.squeeze(waveform))
+        return torch.outer(torch.squeeze(u), torch.squeeze(v))
 
 
 
@@ -125,7 +152,7 @@ class Subtractr(pl.LightningModule):
         loss = self.loss_fn(pred, y)
         self.log('val_loss', loss)
 
-    def run(self, traces, monotone_filter=False, monotone_filter_start=500, verbose=True, normalize=False):
+    def run(self, traces, monotone_filter=False, monotone_filter_start=500, verbose=True):
         ''' Run demixer over PSC trace batch and apply monotone decay filter.
         '''
 
@@ -133,17 +160,12 @@ class Subtractr(pl.LightningModule):
             print('Running photocurrent removal...', end='')
         t1 = time.time()
 
-        # Here, we normalize over a whole batch of traces, so that the largest amplitude is 1.
-        # Note that this is different from NWD, where we scale each trace.
-        if normalize:
-            tmax = np.max(traces)
-        else:
-            tmax = 1.0
+        maxv = np.max(traces, axis=-1, keepdims=True)
         dem = self.forward(
             torch.tensor(
-                (traces/tmax), dtype=torch.float32, device=self.device
+                (traces/maxv), dtype=torch.float32, device=self.device
             )
-        ).cpu().detach().numpy().squeeze() * tmax
+        ).cpu().detach().numpy().squeeze() * maxv
 
         if monotone_filter:
             dem = cm.neural_waveform_demixing._monotone_decay_filter(dem, inplace=False,
@@ -158,7 +180,16 @@ class Subtractr(pl.LightningModule):
 
     def generate_training_data(self,
                                args):
-
+        pc_shape_params = dict(
+            O_inf_min=args.O_inf_min,
+            O_inf_max=args.O_inf_max,
+            R_inf_min=args.R_inf_min,
+            R_inf_max=args.R_inf_max,
+            tau_o_min=args.tau_o_min,
+            tau_o_max=args.tau_o_max,
+            tau_r_min=args.tau_r_min,
+            tau_r_max=args.tau_r_max,
+        )
         key = jrand.PRNGKey(0)
         train_key, test_key = jrand.split(key, num=2)
         self.train_expts = photocurrent_sim.sample_photocurrent_expts_batch(
@@ -170,6 +201,10 @@ class Subtractr(pl.LightningModule):
             gp_scale_range=(args.gp_scale_min, args.gp_scale_max),
             iid_noise_scale_range=(
                 args.iid_noise_scale_min, args.iid_noise_scale_max),
+            min_pc_fraction=args.min_pc_fraction,
+            max_pc_fraction=args.max_pc_fraction,
+            gp_lengthscale=args.gp_lengthscale,
+            pc_shape_params=pc_shape_params,
         )
 
         self.test_expts = photocurrent_sim.sample_photocurrent_expts_batch(
@@ -181,6 +216,10 @@ class Subtractr(pl.LightningModule):
             gp_scale_range=(args.gp_scale_min, args.gp_scale_max),
             iid_noise_scale_range=(
                 args.iid_noise_scale_min, args.iid_noise_scale_max),
+            min_pc_fraction=args.min_pc_fraction,
+            max_pc_fraction=args.max_pc_fraction,
+            gp_lengthscale=args.gp_lengthscale,
+            pc_shape_params=pc_shape_params,
         )
 
     # def train(self, epochs=1000, batch_size=64, learning_rate=1e-2, data_path=None, save_every=1,
@@ -220,10 +259,14 @@ class PhotocurrentData(torch.utils.data.IterableDataset):
 
     def __init__(self, expts, min_traces_subsample=10):
         super(PhotocurrentData).__init__()
-        self.obs = iter([np.array(x, dtype=np.float32) for x in expts[0]])
-        self.targets = iter([np.array(x, dtype=np.float32) for x in expts[1]])
+        self.N = expts[0].shape[0]
+        self.obs = cycle(iter([np.array(x, dtype=np.float32) for x in expts[0]]))
+        self.targets = cycle(iter([np.array(x, dtype=np.float32) for x in expts[1]]))
         self.min_traces_subsample = min_traces_subsample
         self.idx = 0
+
+    def __len__(self):
+        return self.N
 
     def __iter__(self):
         return self
@@ -240,10 +283,11 @@ class PhotocurrentData(torch.utils.data.IterableDataset):
 
         # normalize by the max, as we'll do at test time
         these_obs = these_obs[idxs_to_keep, :]
-        these_obs /= (np.max(these_obs) + 1e-3)
+        maxv = np.max(these_obs, axis=-1, keepdims=True) + 1e-3
+        these_obs /= maxv
 
         these_targets = these_targets[idxs_to_keep, :]
-        these_targets /= (np.max(these_targets) + 1e-3)
+        these_targets /= maxv
         return (these_obs, these_targets)
 
 
