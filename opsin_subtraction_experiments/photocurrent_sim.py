@@ -169,11 +169,12 @@ def _default_pc_shape_params():
         O_inf_max=1.0,
         R_inf_min=0.3,
         R_inf_max=1.0,
-        tau_o_min=5,
-        tau_o_max=14,
+        tau_o_min=3,
+        tau_o_max=8,
         tau_r_min=25,
         tau_r_max=30,
     )
+
 
 def sample_photocurrent_shapes(
         key, num_expts,
