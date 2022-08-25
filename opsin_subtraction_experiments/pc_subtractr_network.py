@@ -1,4 +1,3 @@
-import tqdm
 import numpy as np
 import circuitmap as cm
 
@@ -7,7 +6,6 @@ import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 import pytorch_lightning as pl
 import time
-import math
 import sys
 
 import argparse
@@ -41,7 +39,11 @@ class Subtractr(pl.LightningModule):
         parser.add_argument('--min_pc_fraction', type=float, default=0.1)
         parser.add_argument('--max_pc_fraction', type=float, default=1.0)
         parser.add_argument('--gp_lengthscale', type=float, default=50.0)
-        parser.add_argument('--use_ls_solve', default=False, action=argparse.BooleanOptionalAction)
+
+        # whether we use the LS solver at the end of forward pass
+        parser.add_argument('--use_ls_solve', action='store_true')
+        parser.add_argument('--no_use_ls_solve', dest='use_ls_solve', action='store_false')
+        parser.set_defaults(use_ls_solve=False)
         
         # photocurrent shape args
         parser.add_argument('--O_inf_min', type=float, default=0.3)
