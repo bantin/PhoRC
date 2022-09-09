@@ -5,6 +5,10 @@ import jax.numpy as jnp
 import jax.random as jrand
 import jax.scipy as jsp
 import circuitmap as cm
+
+from scipy.optimize import curve_fit
+from scipy.ndimage import gaussian_filter1d
+
 jax.config.update('jax_platform_name', 'cpu')
 
 def _photocurrent_shape(
@@ -197,6 +201,124 @@ def _default_pc_shape_params():
         tau_r_min=25,
         tau_r_max=30,
     )
+
+
+def _exp_func(t, a, b, c):
+    ''' Exponential function
+    '''
+    return a * np.exp(b * t) + c
+
+
+def _fit_exponential_tail(trace, t, a0, b0, c0):
+    '''
+    Fit exponentials to the provided traces.
+    params:
+        traces: N x T array
+    returns:
+        a, b, c: length N arrays of parameters, such that the exponential
+                 a[i] * exp(b[i] * t) + c[i] ~= traces[i] for i = 1,...,N
+    '''
+    popt, pcov = curve_fit(
+        _exp_func,
+        t, trace,
+        p0=(a0, b0, c0)
+    )
+    return popt
+
+
+def _extend_traces(
+    traces,
+    msecs_per_sample,
+    num_samples_to_add,
+    fit_start_idx=400,
+    replace_start_idx=600,
+    a0=0.1,
+    b0=-1.0/20.0,
+    c0=0.5
+    ):
+    N, window_len = traces.shape
+    t_fit = np.arange(fit_start_idx, window_len) * msecs_per_sample
+    params = [_fit_exponential_tail(trace, t_fit, a0, b0, c0)
+        for trace in traces[:, fit_start_idx:]]
+    
+    # create decaying exponentials of length num_samples_to_add
+    t_new = np.arange(replace_start_idx, window_len + num_samples_to_add) \
+         * msecs_per_sample
+    extensions = np.array([_exp_func(t_new, *popt) for popt in params])
+
+    # concatenate traces with estimated tails
+    out = np.zeros((N, window_len + 2 * num_samples_to_add))
+    out[:, num_samples_to_add:num_samples_to_add + replace_start_idx] = traces[:, 0:replace_start_idx]
+    out[:, num_samples_to_add + replace_start_idx:] = extensions
+
+    # extend beginning of trace by appending constant
+    out[:, 0:num_samples_to_add] = traces[:,0:1]
+
+    return out
+
+
+def sample_from_templates(
+    templates,
+    key,
+    size=100,
+    jitter_ms=0.5,
+    window_len=900,
+    smoothing_sigma=5,
+    max_scaling_frac=0.5,
+    msecs_per_sample=0.05,
+    stim_start=100,
+    exponential_fit_start_idx=450,
+    add_target_gp=False,
+    target_gp_lengthscale=50,
+    target_gp_scale=0.01,
+    ):
+    '''
+    sample traces from templates with augmentation by jitter and scaling
+    '''
+
+    templates[:, 0:stim_start] = 0.0
+
+    # extend templates so that we can sample using jitter
+    num_samples_to_add =  int(np.round(jitter_ms / msecs_per_sample))
+    extended_traces = _extend_traces(
+        templates,
+        msecs_per_sample,
+        num_samples_to_add,
+        exponential_fit_start_idx,
+    )
+    extended_traces_smoothed = gaussian_filter1d(
+        extended_traces, sigma=smoothing_sigma)
+    
+    out = np.zeros((size, templates.shape[-1]))
+    for i in range(size):
+        this_template_idx = np.random.randint(templates.shape[0])
+        this_template = np.copy(extended_traces_smoothed[this_template_idx])
+        this_scale = 1.0 + np.random.uniform(low=-max_scaling_frac, high=max_scaling_frac)
+        this_template *= this_scale
+
+        # sample jitter in number of samples to shift
+        this_jitter_samples = np.random.randint(low=0, high=num_samples_to_add)
+        start_idx = num_samples_to_add + this_jitter_samples
+        out[i] = this_template[start_idx:start_idx + window_len]
+
+    if add_target_gp:
+        stim_start_idx = int(stim_start // msecs_per_sample)
+        key = jrand.fold_in(key, 0)
+        target_gp = np.array(_sample_gp(
+            key, 
+            out,
+            gp_lengthscale=target_gp_lengthscale,
+            gp_scale=target_gp_scale,
+        ))
+        target_gp = np.maximum(0, target_gp)
+        out = np.array(out)
+        out[:, stim_start_idx+10:] += target_gp[:, stim_start_idx+10:]
+        out = cm.neural_waveform_demixing._monotone_decay_filter(
+            out,
+            inplace=True,
+        )
+
+    return out
 
 
 def sample_photocurrent_shapes(
