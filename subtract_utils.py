@@ -140,6 +140,112 @@ def run_subtraction_pipeline(pscs, powers, targets, stim, demixer_checkpoint, no
 
     )
 
+
+def run_network_subtraction_pipeline(pscs, powers, targets,
+    stim, demixer_checkpoint, subtractr_net, no_op=False, run_raw_demix=False):
+    # Run subtraction on all PSCs
+    if no_op:
+        est = np.zeros_like(pscs)
+    else:
+        est = subtractr_net(pscs)
+    subtracted = pscs - est
+
+    # load demixer checkpoint and demix
+    demixer = NeuralDemixer(path=demixer_checkpoint, device='cpu')
+    demixed = util.denoise_pscs_in_batches(subtracted, demixer)
+
+    # optionally run the demixer on the traces before subtraction
+    raw_demixed_tensor = None
+    raw_demixed_map = None
+    if run_raw_demix:
+        raw_demixed = util.denoise_pscs_in_batches(pscs, demixer)
+        raw_demixed_tensor = util.make_psc_tensor_multispot(raw_demixed, 
+            powers, targets, stim)
+        raw_demixed_map = traces_tensor_to_map(raw_demixed_tensor)
+
+    # convert to tensors for easier plotting
+    raw_pscs_tensor = util.make_psc_tensor_multispot(pscs, powers, targets, stim)
+    est_pscs_tensor = util.make_psc_tensor_multispot(est, powers, targets, stim)
+    subtracted_pscs_tensor = util.make_psc_tensor_multispot(subtracted, powers, targets, stim)
+    demixed_pscs_tensor = util.make_psc_tensor_multispot(demixed, powers, targets, stim)
+
+    # make plot of spatial maps
+    mean_map = traces_tensor_to_map(raw_pscs_tensor)
+    mean_map_subtracted = traces_tensor_to_map(subtracted_pscs_tensor)
+    mean_map_demixed = traces_tensor_to_map(demixed_pscs_tensor)
+
+    return dict(
+        # return traces matrices
+        raw_matrix=pscs,
+        est_matrix=est,
+        subtracted_matrix=subtracted,
+        demixed_matrix=demixed,
+        
+        # return traces tensors
+        raw_tensor=raw_pscs_tensor,
+        est_tensor=est_pscs_tensor,
+        subtracted_tensor=subtracted_pscs_tensor,
+        demixed_tensor=demixed_pscs_tensor,
+
+        # return grid maps
+        raw_map=mean_map,
+        subtracted_map=mean_map_subtracted,
+        demixed_map=mean_map_demixed,
+
+        # optional: show performance of just demixer
+        raw_demixed_tensor=raw_demixed_tensor,
+        raw_demixed_map=raw_demixed_map,
+
+    )
+
+
+def run_subtraction_pipeline_multipulse(
+    pscs, powers, targets, stim, demixer_checkpoint,
+    no_op=False, num_pulses=3, **run_kwargs):
+
+    # Run subtraction on traces from all pulses at once
+    if no_op:
+        est = np.zeros_like(pscs)
+    else:
+        est = subtractr.estimate_photocurrents_baseline(pscs, powers, **run_kwargs)
+    subtracted = pscs - est
+
+    # load demixer checkpoint and demix
+    demixer = NeuralDemixer(path=demixer_checkpoint, device='cpu')
+    demixed = util.denoise_pscs_in_batches(subtracted, demixer)
+
+    # separate by pulses when creating psc tensors
+
+    raw_pscs_tensor = util.make_psc_tensor_multispot(pscs, powers, targets, stim)
+    est_pscs_tensor = util.make_psc_tensor_multispot(est, powers, targets, stim)
+    subtracted_pscs_tensor = util.make_psc_tensor_multispot(subtracted, powers, targets, stim)
+    demixed_pscs_tensor = util.make_psc_tensor_multispot(demixed, powers, targets, stim)
+
+    # make plot of spatial maps
+    mean_map = traces_tensor_to_map(raw_pscs_tensor)
+    mean_map_subtracted = traces_tensor_to_map(subtracted_pscs_tensor)
+    mean_map_demixed = traces_tensor_to_map(demixed_pscs_tensor)
+
+    return dict(
+        # return traces matrices
+        raw_matrix=pscs,
+        est_matrix=est,
+        subtracted_matrix=subtracted,
+        demixed_matrix=demixed,
+        
+        # return traces tensors
+        raw_tensor=raw_pscs_tensor,
+        est_tensor=est_pscs_tensor,
+        subtracted_tensor=subtracted_pscs_tensor,
+        demixed_tensor=demixed_pscs_tensor,
+        # return grid maps
+        raw_map=mean_map,
+        subtracted_map=mean_map_subtracted,
+        demixed_map=mean_map_demixed
+
+    )
+
+
 def make_subtraction_figs_singlespot(pscs, I, L, dataset_name, demixer_checkpoint):
     y_raw = pscs.sum(1)
     grid_mean, _, num_stims = util.make_suff_stats(y_raw, I, L)

@@ -5,8 +5,11 @@ from mpl_toolkits.axes_grid1 import ImageGrid
 from pathlib import Path
 
 
-from sklearn.linear_model import Ridge
+from sklearn.linear_model import Ridge, LassoCV
 import matplotlib.pyplot as plt
+import time
+import h5py
+import matplotlib.patches as patches
 
 
 def sort_results(results):
@@ -245,6 +248,7 @@ def make_suff_stats(y, I, L):
 
 
 def plot_multi_means(fig, mean_maps, depth_idxs,
+                     roi_bounds=None,
                      zs=None, zlabels=None, powers=None, map_names=None, cmaps='viridis',
                      vranges=None, cbar_labels=None, show_powers=None):
     if show_powers is None:
@@ -303,6 +307,14 @@ def plot_multi_means(fig, mean_maps, depth_idxs,
                            origin='lower', vmin=min_val, vmax=max_val, cmap=cmap)
 
             cbar = grid[0].cax.colorbar(im)
+
+            if roi_bounds is not None:
+                roi_curr = roi_bounds[mean_idx]
+                rect = patches.Rectangle((50, 100), 40,
+                    30, linewidth=1, edgecolor='r', facecolor='none')
+
+                # Add the patch to the Axes
+                ax.add_patch(rect)
 
         if cbar_labels is not None:
             cbar.set_label(cbar_labels[mean_idx], rotation=90, loc='top')
@@ -382,7 +394,7 @@ def make_grid_latencies(grid_waveforms,
     return latencies_flat.reshape(*grid_dims)
 
 
-def plot_spike_inference_with_waveforms(den_psc, stim, I, model, waveforms, latencies,
+def plot_spike_inference_with_waveforms(den_psc, stim, I, model_state, waveforms=None, latencies=None,
                                         spike_thresh=0.01, save=None, ymax=None, n_plots=15, num_trials=30,
                                         weights=None, col_width=10.5, row_height=0.6, order=None,
                                         title=None, raw_psc=None, fontsize=14):
@@ -394,10 +406,10 @@ def plot_spike_inference_with_waveforms(den_psc, stim, I, model, waveforms, late
     ymax = 1.05
     ymin = -0.05 * ymax
 
-    mu = model.state['mu']
+    mu = model_state['mu']
     mu /= np.max(mu)
-    lam = model.state['lam']
-    z = model.state['z']
+    lam = model_state['lam']
+    z = model_state['z']
 
     fig = plt.figure(figsize=(col_width, row_height *
                      n_plots * 1.5), dpi=300, facecolor='white')
@@ -409,6 +421,9 @@ def plot_spike_inference_with_waveforms(den_psc, stim, I, model, waveforms, late
     width_ratios[-1] = n_plots
     gs = fig.add_gridspec(ncols=len(powers) + 1, nrows=n_plots,
                           hspace=0.5, wspace=0.05, width_ratios=width_ratios)
+
+    if order is None:
+        order = np.argsort(mu)[::-1]
 
     for m in range(n_plots):
         n = order[m]
@@ -502,3 +517,71 @@ def plot_spike_inference_with_waveforms(den_psc, stim, I, model, waveforms, late
                 plt.ylim([ymin, ymax])
 
     return fig
+
+
+def circuitmap_lasso_cv(stim_mat, pscs, K=5):
+    """
+    For each power, return a list of inferred weights via L1 regularized regression.
+    The L1 penalty is determined by K-fold cross validation.
+    
+    returns:
+        responses: (num_powers x num_cells) inferred weight at each power
+    """
+    powers = np.unique(stim_mat.ravel())[1:] # exclude zero
+    num_powers = len(powers)
+    N = stim_mat.shape[0]
+    responses = np.zeros((num_powers, N))
+    models = []
+    for pidx, power in enumerate(powers):
+        
+        curr_trials = np.max(stim_mat, axis=0) == power
+        curr_stim = stim_mat[:,curr_trials]
+        curr_pscs = pscs[curr_trials,:]
+        stim_binarized = curr_stim > 0 
+        
+        # fit lasso with cross val
+        print('Starting lasso CV')
+        start_time = time.time()
+        y = np.trapz(curr_pscs, axis=-1)
+        model = LassoCV(cv=K, n_jobs=-1, positive=True, fit_intercept=False, n_alphas=10).fit(stim_binarized.T, y)
+        end_time = time.time() - start_time
+        print('CV at single power took %f secs' % end_time)
+        responses[pidx] = model.coef_
+        models.append(model)
+        
+    return responses, models
+
+# separate data by pulses
+def separate_by_pulses(stim_mat, pscs, npulses):
+    stim_mat_list = [stim_mat[:,i::npulses] for i in range(npulses)]
+    pscs_list = [pscs[i::npulses,:] for i in range(npulses)]
+    powers_list = [np.max(x, axis=0) for x in stim_mat_list]
+    return stim_mat_list, pscs_list, powers_list
+
+
+def load_h5_data(dataset_path, pulse_idx=-1):
+    with h5py.File(dataset_path) as f:
+        pscs = np.array(f['pscs']).T
+        stim_mat = np.array(f['stimulus_matrix']).T
+        targets = np.array(f['targets']).T
+        powers = np.max(stim_mat, axis=0)
+
+        if 'num_pulses_per_holo' in f:
+            npulses = np.array(f['num_pulses_per_holo'], dtype=int).item()
+        else:
+            npulses = 1
+            
+        # get rid of any trials where we didn't actually stim
+        good_idxs = (powers > 0)
+        pscs = pscs[good_idxs,:]
+        stim_mat = stim_mat[:,good_idxs]
+        powers = powers[good_idxs]
+
+        # return values corresponding to the pulse we want,
+        # in case of multipulse experimental design
+        stim_mat_list, pscs_list, powers_list = separate_by_pulses(stim_mat, pscs, npulses=npulses)
+        stim_mat = stim_mat_list[pulse_idx]
+        pscs = pscs_list[pulse_idx]
+        powers = powers_list[pulse_idx]
+
+        return pscs, stim_mat, powers, targets
