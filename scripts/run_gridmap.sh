@@ -17,7 +17,7 @@ ml cuda/11.2.0 cudnn/8.2.1.32
 
 stat $1
 stat $2
-python run_gridmap.py --msrmp 0.3 --iters 50 --dataset-path $1 --demixer-checkpoint $2 --run-caviar --subtract-pc
+python run_gridmap.py --msrmp 0.3 --iters 50 --dataset-path $1 --demixer-checkpoint $2 --subtractr-checkpoint $3 --run-caviar --subtract-pc
 
 
 # End of script

@@ -35,6 +35,7 @@ def parse_fit_options(argseq):
     parser.add_argument('--dataset-path', type=str)
     parser.add_argument('--demixer-checkpoint', type=str,
         default="/Users/Bantin/Documents/Columbia/Projects/2p-opto/circuit_mapping/demixers/nwd_ee_ChroME1.ckpt")
+    parser.add_argument('--subtractr-checkpoint', type=str)
 
     # opsin subtract args
     parser.add_argument('--subtract-pc', action='store_true', default=False)
@@ -65,25 +66,6 @@ if __name__ == "__main__":
     stim_mat = stim_mat[:,good_idxs]
     powers = powers[good_idxs]
     
-    # if 'grid' is part of the filename, we're working with multispot data.
-    # Reshape things accordingly. In the future, this should be moved to preprocessing.
-    # L should have shape (num_trials x num_spots x 3)
-    # I should have shape (num_trials,)
-    # Both single and multispot are treated the same -- so for singlespot data
-    # L will have shape (num_trials x 1 x 3)
-    # num_powers = len(np.unique(I))
-    # if 'grid' in dset_name: #multispot
-    #     I = np.ravel(I.T)
-    #     L = np.tile(L, (num_powers,1,1))
-    # elif 'planes' in dset_name: #singlespot
-    #     L = L[:,None,:]
-    # else:
-    #     raise ValueError("Unrecognized filename. Aborting.")
-    
-    # Form stim matrix and map from locations to indices
-    # stim_mat, loc_map = util.make_stim_matrix(I, L)
-
-
 
     # Optionally run photocurrent subtraction.
     # if no_op is True, the subtraction is a no_op and the following call
@@ -91,8 +73,14 @@ if __name__ == "__main__":
     no_op = (not args.subtract_pc)
     if not no_op:
         print('Running opsin subtraction pipeline...')
-    results = subtract_utils.run_subtraction_pipeline(pscs, powers, targets, stim_mat,
-        args.demixer_checkpoint, separate_by_power=False, rank=1, no_op=no_op)
+        subtractr_net = NeuralDemixer(path=args.subtractr_checkpoint,
+            unet_args=dict(
+                down_filter_sizes=(16, 32, 64, 128),
+                up_filter_sizes=(64, 32, 16, 4),
+            )
+        )
+    results = subtract_utils.run_network_subtraction_pipeline(pscs, powers, targets, stim_mat,
+        args.demixer_checkpoint, subtractr_net)
 
     num_planes = results['raw_map'].shape[-1]
 
