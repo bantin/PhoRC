@@ -98,6 +98,54 @@ def plot_subtraction_comparison(raw_tensor, est_tensors, subtracted_tensors, dem
     plt.tight_layout()
     return fig, axs
 
+
+def plot_subtraction_by_power(pscs, ests, subtracted, demixed, powers, time=None, fig_kwargs=None):
+
+    if fig_kwargs is None:
+        fig_kwargs = dict(
+            figsize=(9,3), 
+            dpi=200,
+            sharex=True
+        )
+    unique_powers = np.unique(powers)
+    fig, axs = plt.subplots(nrows=len(unique_powers), ncols = 4, squeeze=False, **fig_kwargs)
+
+    if time is None:
+        time = np.arange(0,900) * 0.05
+    for i in range(len(unique_powers)):
+        these_trials = (powers == unique_powers[i])
+        these_pscs = pscs[these_trials]
+        these_ests = ests[these_trials]
+        these_subtracted = subtracted[these_trials]
+        these_demixed = demixed[these_trials]
+
+        # order each by magnitude of photocurrent
+        ordered_idx = np.argsort(np.sum(these_pscs, axis=-1))[::-1]
+        these_pscs = these_pscs[ordered_idx]
+        these_ests = these_ests[ordered_idx]
+        these_demixed = these_demixed[ordered_idx]
+
+        these_subtracted = these_subtracted[ordered_idx]
+
+        axs[i,0].plot(time, these_pscs[0:20].T)
+        axs[i,1].plot(time, these_ests[0:20].T)
+        axs[i,2].plot(time, these_subtracted[0:20].T)
+        axs[i,3].plot(time, these_demixed[0:20].T)
+
+        # make ylim of first two plots match
+        axs[i,1].set_ylim(axs[i,0].get_ylim())
+        axs[i,3].set_ylim(axs[i,2].get_ylim())
+        axs[i,0].set_ylabel('%d mW' % unique_powers[i])
+
+    labels = ['raw', 'est', 'subtracted', 'demixed']
+    for i in range(4):
+        axs[-1, i].set_xlabel('time (ms)')
+        axs[0, i].set_title(labels[i])
+
+    plt.tight_layout()
+    return fig
+
+
 def run_subtraction_pipeline(pscs, powers, targets, stim, demixer_checkpoint, no_op=False, **run_kwargs):
     # Run subtraction on all PSCs
     if no_op:

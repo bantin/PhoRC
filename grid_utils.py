@@ -1,3 +1,4 @@
+from email.policy import default
 import numpy as np
 import matplotlib as mpl
 
@@ -23,6 +24,8 @@ def sort_results(results):
     model_state = results['model_state'].item()
     targets = results['targets']
     N = targets.shape[0]
+
+    print(targets.shape)
 
     # ensure that targets are in the right order so that things work when reshaped
     idxs = np.lexsort((targets[:, -1], targets[:, -2], targets[:, -3]))
@@ -311,7 +314,7 @@ def plot_multi_means(fig, mean_maps, depth_idxs,
             if roi_bounds is not None:
                 roi_curr = roi_bounds[mean_idx]
                 rect = patches.Rectangle((50, 100), 40,
-                    30, linewidth=1, edgecolor='r', facecolor='none')
+                                         30, linewidth=1, edgecolor='r', facecolor='none')
 
                 # Add the patch to the Axes
                 ax.add_patch(rect)
@@ -407,7 +410,7 @@ def plot_spike_inference_with_waveforms(den_psc, stim, I, model_state, waveforms
     ymin = -0.05 * ymax
 
     mu = model_state['mu']
-    mu /= np.max(mu)
+    mu /= (np.max(mu) + 1e-9)
     lam = model_state['lam']
     z = model_state['z']
 
@@ -519,42 +522,70 @@ def plot_spike_inference_with_waveforms(den_psc, stim, I, model_state, waveforms
     return fig
 
 
+def reshape_lasso_response(resp, targets, grid_dims):
+    
+    num_powers, num_points = resp.shape
+    if num_powers * num_points == np.prod(grid_dims):
+        return np.reshape(resp, (num_powers, *grid_dims))
+
+    # If some points are missing from the grid
+    # e.g if the center points have been removed,
+    # we will have to manually fill in the response.
+    xs = np.unique(targets[:,0])
+    ys = np.unique(targets[:,1])
+    zs = np.unique(targets[:,2])
+    resp_out = np.zeros((num_powers, *grid_dims))
+    for pidx in range(num_powers):
+        resp_this_power = resp[pidx]
+        target_map = dict([(tuple(k),v) for (k,v) in zip(targets, resp_this_power)])
+
+        for i,x in enumerate(xs):
+            for j,y in enumerate(ys):
+                for k,z in enumerate(zs):
+                    resp_out[pidx, i, j, k] = target_map.get((x,y,z), 0.0)
+    return resp_out
+
+    
+
 def circuitmap_lasso_cv(stim_mat, pscs, K=5):
     """
     For each power, return a list of inferred weights via L1 regularized regression.
     The L1 penalty is determined by K-fold cross validation.
-    
+
     returns:
         responses: (num_powers x num_cells) inferred weight at each power
     """
-    powers = np.unique(stim_mat.ravel())[1:] # exclude zero
+    powers = np.unique(stim_mat.ravel())[1:]  # exclude zero
     num_powers = len(powers)
     N = stim_mat.shape[0]
     responses = np.zeros((num_powers, N))
     models = []
     for pidx, power in enumerate(powers):
-        
+
         curr_trials = np.max(stim_mat, axis=0) == power
-        curr_stim = stim_mat[:,curr_trials]
-        curr_pscs = pscs[curr_trials,:]
-        stim_binarized = curr_stim > 0 
-        
+        curr_stim = stim_mat[:, curr_trials]
+        curr_pscs = pscs[curr_trials, :]
+        stim_binarized = curr_stim > 0
+
         # fit lasso with cross val
         print('Starting lasso CV')
         start_time = time.time()
         y = np.trapz(curr_pscs, axis=-1)
-        model = LassoCV(cv=K, n_jobs=-1, positive=True, fit_intercept=False, n_alphas=10).fit(stim_binarized.T, y)
+        model = LassoCV(cv=K, n_jobs=-1, positive=True,
+                        fit_intercept=False, n_alphas=10).fit(stim_binarized.T, y)
         end_time = time.time() - start_time
         print('CV at single power took %f secs' % end_time)
         responses[pidx] = model.coef_
         models.append(model)
-        
+
     return responses, models
 
 # separate data by pulses
+
+
 def separate_by_pulses(stim_mat, pscs, npulses):
-    stim_mat_list = [stim_mat[:,i::npulses] for i in range(npulses)]
-    pscs_list = [pscs[i::npulses,:] for i in range(npulses)]
+    stim_mat_list = [stim_mat[:, i::npulses] for i in range(npulses)]
+    pscs_list = [pscs[i::npulses, :] for i in range(npulses)]
     powers_list = [np.max(x, axis=0) for x in stim_mat_list]
     return stim_mat_list, pscs_list, powers_list
 
@@ -570,16 +601,17 @@ def load_h5_data(dataset_path, pulse_idx=-1):
             npulses = np.array(f['num_pulses_per_holo'], dtype=int).item()
         else:
             npulses = 1
-            
+
         # get rid of any trials where we didn't actually stim
         good_idxs = (powers > 0)
-        pscs = pscs[good_idxs,:]
-        stim_mat = stim_mat[:,good_idxs]
+        pscs = pscs[good_idxs, :]
+        stim_mat = stim_mat[:, good_idxs]
         powers = powers[good_idxs]
 
         # return values corresponding to the pulse we want,
         # in case of multipulse experimental design
-        stim_mat_list, pscs_list, powers_list = separate_by_pulses(stim_mat, pscs, npulses=npulses)
+        stim_mat_list, pscs_list, powers_list = separate_by_pulses(
+            stim_mat, pscs, npulses=npulses)
         stim_mat = stim_mat_list[pulse_idx]
         pscs = pscs_list[pulse_idx]
         powers = powers_list[pulse_idx]
