@@ -48,7 +48,7 @@ class Subtractr(pl.LightningModule):
         parser.add_argument('--no_use_ls_solve', dest='use_ls_solve', action='store_false')
         parser.set_defaults(use_ls_solve=False)
         
-        	# whether we add a gp to the target waveforms
+        # whether we add a gp to the target waveforms
         parser.add_argument('--add_target_gp', action='store_true')
         parser.add_argument('--no_add_target_gp', dest='add_target_gp', action='store_false')
         parser.set_defaults(add_target_gp=True)
@@ -71,6 +71,9 @@ class Subtractr(pl.LightningModule):
         # photocurrent timing args
         parser.add_argument('--onset_jitter_ms', type=float, default=1.0)
         parser.add_argument('--onset_latency_ms', type=float, default=0.2)
+
+        # architecture type
+        parser.add_argument('--model_type', type=str, default='MultiTraceConv')
 
         # SetTransformer args
         parser.add_argument('--dim_input', type=int, default=900)
