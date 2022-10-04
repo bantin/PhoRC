@@ -1,3 +1,5 @@
+from ast import Mult
+from multiprocessing.sharedctypes import Value
 import numpy as np
 import circuitmap as cm
 
@@ -14,6 +16,7 @@ import photocurrent_sim
 import jax
 import jax.random as jrand
 from itertools import cycle
+from backbones import MultiTraceConv, SetTransformer, MultiTraceConvAttention
 jax.config.update('jax_platform_name', 'cpu')
 
 
@@ -25,7 +28,7 @@ class Subtractr(pl.LightningModule):
         parser.add_argument('--num_train', type=int, default=1000)
         parser.add_argument('--num_test', type=int, default=100)
         parser.add_argument('--trial_dur', type=int, default=900)
-        parser.add_argument('--num_traces_per_expt', type=int, default=200)
+        parser.add_argument('--num_traces_per_expt', type=int, default=50)
         parser.add_argument('--photocurrent_scale_min',
                             type=float, default=0.01)
         parser.add_argument('--photocurrent_scale_max',
@@ -36,7 +39,7 @@ class Subtractr(pl.LightningModule):
         parser.add_argument('--gp_scale_max', type=float, default=0.2)
         parser.add_argument('--iid_noise_scale_min', type=float, default=0.01)
         parser.add_argument('--iid_noise_scale_max', type=float, default=0.1)
-        parser.add_argument('--min_pc_fraction', type=float, default=0.1)
+        parser.add_argument('--min_pc_fraction', type=float, default=0.5)
         parser.add_argument('--max_pc_fraction', type=float, default=1.0)
         parser.add_argument('--gp_lengthscale', type=float, default=50.0)
 
@@ -68,6 +71,13 @@ class Subtractr(pl.LightningModule):
         # photocurrent timing args
         parser.add_argument('--onset_jitter_ms', type=float, default=1.0)
         parser.add_argument('--onset_latency_ms', type=float, default=0.2)
+
+        # SetTransformer args
+        parser.add_argument('--dim_input', type=int, default=900)
+        parser.add_argument('--num_inds', type=int, default=64)
+        parser.add_argument('--dim_hidden', type=int, default=128)
+        parser.add_argument('--num_heads', type=int, default=4)
+        parser.add_argument('--ln', type=bool, default=False)
         
         return parent_parser
 
@@ -78,60 +88,18 @@ class Subtractr(pl.LightningModule):
         # save hyperparms stored in args, if present
         self.save_hyperparameters(args)
 
-        # Initialize layers
-        self.feature_encoder = torch.nn.ModuleList([
-            DownsamplingBlock(1, 16, 32, 2),
-            DownsamplingBlock(16, 16, 32, 1),
-            DownsamplingBlock(16, 32, 16, 1),
-            DownsamplingBlock(32, 32, 16, 1)
-        ])
-
-        self.context_encoder = torch.nn.ModuleList([
-            DownsamplingBlock(1, 16, 32, 2),
-            DownsamplingBlock(16, 16, 32, 1),
-            DownsamplingBlock(16, 32, 16, 1),
-            DownsamplingBlock(32, 32, 16, 1)
-        ])
-
-        self.ublock1 = UpsamplingBlock(64, 48, 16, 1)
-        self.ublock2 = UpsamplingBlock(48 + 32, 32, 16, 1)
-        self.ublock3 = UpsamplingBlock(32 + 16, 16, 32, 1)
-        self.ublock4 = UpsamplingBlock(16 + 16, 4, 32, 2)
-        self.conv = ConvolutionBlock(4, 1, 256, 255, 1, 2)
+        if args.model_type == 'MultiTraceConv':
+            self.backbone = MultiTraceConv(args=args)
+        elif args.model_type == 'SetTransformer':
+            self.backbone = SetTransformer(args=args)
+        elif args.model_type == 'MultiTraceConvAttention':
+            self.backbone = MultiTraceConvAttention(args=args)
+        else:
+            raise ValueError('Model type not recognized.')
 
     def forward(self, x):
 
-        x = torch.squeeze(x)[:,None,:] # batch x channel x time
-
-        # make feature vector which is aggregate over entire batch
-        feats = torch.clone(x)
-        for l in self.feature_encoder:
-            feats = l(feats)
-        dims = feats.shape
-        feats = torch.mean(feats, dim=0, keepdim=True) # average over entire batch
-        feats = torch.broadcast_to(feats, dims) #shape of feats now matches shape of inputs
-
-        # Make context embedding, saving outputs to use as skip connections
-        context = torch.clone(x)
-        skip_inputs = []
-        context_sizes = np.zeros(len(self.context_encoder), dtype=int)
-        for l in self.context_encoder:
-            skip_inputs.append(context)
-            context = l(context) 
-
-        # Concatenate context and features along channels dimension
-        context_plus_features = torch.concat((context, feats), dim=1) # channels dimension
-
-        # Decoding
-        dec1 = self.ublock1(context_plus_features, skip=skip_inputs[3])
-        dec2 = self.ublock2(dec1, skip=skip_inputs[2])
-        dec3 = self.ublock3(dec2, skip=skip_inputs[1])
-        dec4 = self.ublock4(dec3, interp_size=x.shape[-1])
-
-        # Final conv layer
-        out = self.conv(dec4)
-
-        return out 
+        return self.backbone.forward(x)
 
     def configure_optimizers(self):
         return torch.optim.SGD(self.parameters(), lr=self.hparams.learning_rate)
@@ -257,11 +225,14 @@ class PhotocurrentData(torch.utils.data.IterableDataset):
         these_obs = next(self.obs)
         these_targets = next(self.targets)
 
-        num_traces = these_obs.shape[0]
-        num_traces_to_keep = np.random.randint(
-            low=self.min_traces_subsample, high=num_traces)
-        idxs_to_keep = np.random.randint(
-            low=0, high=num_traces, size=num_traces_to_keep)
+        # num_traces = these_obs.shape[0]
+        # num_traces_to_keep = np.random.randint(
+        #     low=self.min_traces_subsample, high=num_traces)
+        # idxs_to_keep = np.random.randint(
+        #     low=0, high=num_traces, size=num_traces_to_keep)
+
+        # for now, use fixed batch size
+        idxs_to_keep = np.arange(these_obs.shape[0])
 
         # normalize by the max, as we'll do at test time
         these_obs = these_obs[idxs_to_keep, :]
@@ -271,63 +242,6 @@ class PhotocurrentData(torch.utils.data.IterableDataset):
         these_targets = these_targets[idxs_to_keep, :]
         these_targets /= maxv
         return (these_obs, these_targets)
-
-
-class DownsamplingBlock(nn.Module):
-    ''' DownsamplingBlock
-    '''
-
-    def __init__(self, in_channels, out_channels, kernel_size, dilation):
-        super(DownsamplingBlock, self).__init__()
-
-        self.conv = nn.Conv1d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size,
-                              dilation=dilation)
-        self.decimate = nn.AvgPool1d(kernel_size=3, stride=2)
-        self.relu = nn.ReLU()
-        self.bn = nn.BatchNorm1d(out_channels)
-
-    def forward(self, x):
-        return self.relu(self.bn(self.conv(self.decimate(x))))
-
-
-class UpsamplingBlock(nn.Module):
-    ''' UpsamplingBlock
-    '''
-
-    def __init__(self, in_channels, out_channels, kernel_size, stride, interpolation_mode='linear'):
-        super(UpsamplingBlock, self).__init__()
-
-        self.deconv = nn.ConvTranspose1d(in_channels=in_channels, out_channels=out_channels,
-                                         kernel_size=kernel_size, stride=stride)
-        self.relu = nn.ReLU()
-        self.bn = nn.BatchNorm1d(out_channels)
-        self.interpolation_mode = interpolation_mode
-
-    def forward(self, x, skip=None, interp_size=None):
-        if skip is not None:
-            up = nn.functional.interpolate(self.relu(self.bn(self.deconv(x))), size=skip.shape[-1],
-                                           mode=self.interpolation_mode, align_corners=False)
-            return torch.cat([up, skip], dim=1)
-        else:
-            return nn.functional.interpolate(self.relu(self.bn(self.deconv(x))), size=interp_size,
-                                             mode=self.interpolation_mode, align_corners=False)
-
-
-class ConvolutionBlock(nn.Module):
-    ''' ConvolutionBlock
-    '''
-
-    def __init__(self, in_channels, out_channels, kernel_size, padding, stride, dilation):
-        super(ConvolutionBlock, self).__init__()
-
-        self.conv = nn.Conv1d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size,
-                              stride=stride, padding=padding, dilation=dilation)
-        self.relu = nn.ReLU()
-        self.bn = nn.BatchNorm1d(out_channels)
-
-    def forward(self, x):
-        return self.relu(self.bn(self.conv(x)))
-
 
 class StoreDictKeyPair(argparse.Action):
     def __call__(self, parser, namespace, values, option_string=None):
@@ -343,7 +257,6 @@ def parse_args(argseq):
 
     # Add program level args. The arguments for PSC generation are passed as a separate dictionary
     parser.add_argument('--num_workers', type=int, default=0)
-    parser.add_argument('--batch_size', type=int, default=32)
     parser.add_argument('--data_save_path', type=str, default="")
     parser.add_argument('--data_load_path', type=str, default="")
     # parser.add_argument("--psc_generation_kwargs", dest="psc_generation_kwargs", action=StoreDictKeyPair,
