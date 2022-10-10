@@ -477,6 +477,7 @@ def sample_photocurrent_experiment(
                 tstart=tstart,
                 tend=tend,
                 time_zero_idx=time_zero_idx,)
+    max_pc_scale = jrand.uniform(next(keys), minval=min_pc_scale, maxval=max_pc_scale)
     prev_pcs = _sample_scales(
         next(keys), min_pc_fraction, max_pc_fraction, num_traces, min_pc_scale, max_pc_scale
     )[:, None] * prev_pc_shape
