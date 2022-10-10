@@ -1,5 +1,5 @@
 import torch
-from torch import nn
+from torch import nn, strided
 import numpy as np
 
 import torch
@@ -71,17 +71,17 @@ class PMA(nn.Module):
 
 
 class SetTransformer(nn.Module):
-    def __init__(self, args):
-
-        dim_input = args.dim_input
-        dim_output = args.dim_input
-        num_inds = args.num_inds
-        dim_hidden = args.dim_hidden
-        num_heads = args.num_heads
-        num_outputs = args.num_traces_per_expt
-        ln = args.ln
+    def __init__(self, **hparams):
 
         super(SetTransformer, self).__init__()
+        dim_input = hparams.dim_input
+        dim_output = hparams.dim_input
+        num_inds = hparams.num_inds
+        dim_hidden = hparams.dim_hidden
+        num_heads = hparams.num_heads
+        num_outputs = hparams.num_traces_per_expt
+        ln = hparams.ln
+
         self.enc = nn.Sequential(
             ISAB(dim_input, dim_hidden, num_heads, num_inds, ln=ln),
             ISAB(dim_hidden, dim_hidden, num_heads, num_inds, ln=ln))
@@ -96,41 +96,63 @@ class SetTransformer(nn.Module):
 
 
 class MultiTraceConv(nn.Module):
-    def __init__(self, args=None):
+    def __init__(self, **hparams):
         super().__init__()
+        down_filter_sizes = hparams.get('down_filter_sizes', (16, 16, 32, 32))
+        up_filter_sizes = hparams.get('up_filter_sizes', (16, 16, 16, 4))
 
         # Initialize layers
         self.feature_encoder = torch.nn.ModuleList([
-            DownsamplingBlock(1, 16, 32, 2),
-            DownsamplingBlock(16, 16, 32, 1),
-            DownsamplingBlock(16, 32, 16, 1),
-            DownsamplingBlock(32, 32, 16, 1)
+            MultiTraceDownsamplingBlock(1, down_filter_sizes[0], 32, 2),
+            MultiTraceDownsamplingBlock(
+                down_filter_sizes[0], down_filter_sizes[1], 32, 1),
+            MultiTraceDownsamplingBlock(
+                down_filter_sizes[1], down_filter_sizes[2], 16, 1),
+            MultiTraceDownsamplingBlock(
+                down_filter_sizes[2], down_filter_sizes[3], 16, 1)
         ])
 
         self.context_encoder = torch.nn.ModuleList([
-            DownsamplingBlock(1, 16, 32, 2),
-            DownsamplingBlock(16, 16, 32, 1),
-            DownsamplingBlock(16, 32, 16, 1),
-            DownsamplingBlock(32, 32, 16, 1)
+            MultiTraceDownsamplingBlock(1, down_filter_sizes[0], 32, 2),
+            MultiTraceDownsamplingBlock(
+                down_filter_sizes[0], down_filter_sizes[1], 32, 1),
+            MultiTraceDownsamplingBlock(
+                down_filter_sizes[1], down_filter_sizes[2], 16, 1),
+            MultiTraceDownsamplingBlock(
+                down_filter_sizes[2], down_filter_sizes[3], 16, 1)
         ])
 
-        self.ublock1 = UpsamplingBlock(64, 48, 16, 1)
-        self.ublock2 = UpsamplingBlock(48 + 32, 32, 16, 1)
-        self.ublock3 = UpsamplingBlock(32 + 16, 16, 32, 1)
-        self.ublock4 = UpsamplingBlock(16 + 16, 4, 32, 2)
-        self.conv = ConvolutionBlock(4, 1, 256, 255, 1, 2)
+        self.ublock1 = MultiTraceUpsamplingBlock(
+            2 * down_filter_sizes[3], up_filter_sizes[0], 
+            16, 1, interpolation_mode='linear')
+        self.ublock2 = MultiTraceUpsamplingBlock(
+            down_filter_sizes[2] + up_filter_sizes[0], up_filter_sizes[1], 
+            16, 1, interpolation_mode='linear')
+        self.ublock3 = MultiTraceUpsamplingBlock(
+            down_filter_sizes[1] + up_filter_sizes[1], up_filter_sizes[2], 
+            32, 1, interpolation_mode='linear')
+        self.ublock4 = MultiTraceUpsamplingBlock(
+            down_filter_sizes[0] + up_filter_sizes[2], up_filter_sizes[3], 
+            32, 2, interpolation_mode='linear')
+
+        self.conv = MultiTraceConvolutionBlock(
+            up_filter_sizes[3], 1, 256, 255, 1, 2)
 
     def forward(self, x):
 
-        x = torch.squeeze(x)[:, None, :]  # batch x channel x time
+        x = x[:, None, :, :]  # nbatch x channel x ntrace x time
 
         # make feature vector which is aggregate over entire batch
         feats = torch.clone(x)
         for l in self.feature_encoder:
             feats = l(feats)
         dims = feats.shape
-        # average over entire batch
-        feats = torch.mean(feats, dim=0, keepdim=True)
+
+
+
+        # average over traces from the same experiment
+        feats = torch.mean(feats, dim=2, keepdim=True)
+
         # shape of feats now matches shape of inputs
         feats = torch.broadcast_to(feats, dims)
 
@@ -154,6 +176,7 @@ class MultiTraceConv(nn.Module):
 
         # Final conv layer
         out = self.conv(dec4)
+        out = torch.swapaxes(out, 1, 2)
 
         return out
 
@@ -162,10 +185,10 @@ class MultiTraceConvAttention(nn.Module):
     ''' Neural waveform demixing U-Net
     '''
 
-    def __init__(self, args=None):
+    def __init__(self, **hparams):
         super().__init__()
-        down_filter_sizes = (16, 16, 32, 32)
-        up_filter_sizes = (16, 16, 16, 4)
+        down_filter_sizes = hparams.get('down_filter_sizes', (16, 16, 32, 32))
+        up_filter_sizes = hparams.get('up_filter_sizes', (16, 16, 16, 4))
 
         self.dblock1 = DownsamplingBlock(1, down_filter_sizes[0], 32, 2)
         self.attn1 = MultiChannelAttn(embed_dim=387, num_heads=3)
@@ -191,7 +214,7 @@ class MultiTraceConvAttention(nn.Module):
         self.ublock4 = UpsamplingBlock(
             down_filter_sizes[0] + up_filter_sizes[2], up_filter_sizes[3], 32, 2)
 
-        self.conv = ConvolutionBlock(4, 1, 256, 255, 1, 2)
+        self.conv = ConvolutionBlock(up_filter_sizes[3], 1, 256, 255, 1, 2)
 
     def forward(self, x):
         x = torch.squeeze(x)[:, None, :]  # batch x channel x time
@@ -220,20 +243,71 @@ class MultiTraceConvAttention(nn.Module):
 
         return out
 
-class MultiChannelAttn(nn.Module):
-    def __init__(self, embed_dim, num_heads):
-        super(MultiChannelAttn, self).__init__()
 
+class SingleTraceConv(nn.Module):
+    ''' Neural waveform demixing U-Net
+    '''
+
+    def __init__(self, **hparams):
+        super(SingleTraceConv, self).__init__()
+
+        down_filter_sizes = hparams['down_filter_sizes']
+        up_filter_sizes = hparams['up_filter_sizes']
+
+        self.dblock1 = DownsamplingBlock(1, down_filter_sizes[0], 32, 2)
+        self.dblock2 = DownsamplingBlock(
+            down_filter_sizes[0], down_filter_sizes[1], 32, 1)
+        self.dblock3 = DownsamplingBlock(
+            down_filter_sizes[1], down_filter_sizes[2], 16, 1)
+        self.dblock4 = DownsamplingBlock(
+            down_filter_sizes[2], down_filter_sizes[3], 16, 1)
+
+        self.ublock1 = UpsamplingBlock(
+            down_filter_sizes[3], up_filter_sizes[0], 16, 1)
+        self.ublock2 = UpsamplingBlock(
+            down_filter_sizes[2] + up_filter_sizes[0], up_filter_sizes[1], 16, 1)
+        self.ublock3 = UpsamplingBlock(
+            down_filter_sizes[1] + up_filter_sizes[1], up_filter_sizes[2], 32, 1)
+        self.ublock4 = UpsamplingBlock(
+            down_filter_sizes[0] + up_filter_sizes[2], up_filter_sizes[3], 32, 2)
+
+        self.conv = ConvolutionBlock(up_filter_sizes[3], 1, 256, 255, 1, 2)
+
+    def forward(self, x):
+        # Encoding
+        enc1 = self.dblock1(x)
+        enc2 = self.dblock2(enc1)
+        enc3 = self.dblock3(enc2)
+        enc4 = self.dblock4(enc3)
+
+        # Decoding
+        dec1 = self.ublock1(enc4, skip=enc3)
+        dec2 = self.ublock2(dec1, skip=enc2)
+        dec3 = self.ublock3(dec2, skip=enc1)
+        dec4 = self.ublock4(dec3, interp_size=x.shape[-1])
+
+        # Final conv layer
+        out = self.conv(dec4)
+
+        return out
+
+
+class MultiChannelAttn(nn.Module):
+    def __init__(self, **hparams):
+        super(MultiChannelAttn, self).__init__()
+        embed_dim = hparams['embed_dim']
+        num_heads = hparams['num_heads']
         self.attn = nn.MultiheadAttention(
             embed_dim=embed_dim,
             num_heads=num_heads,
-            batch_first=True, # broadcast over channels as if it's the batch dim
+            batch_first=True,  # broadcast over channels as if it's the batch dim
         )
 
     def forward(self, x):
         x = torch.swapaxes(x, 0, 1)
         x = self.attn(x, x, x, need_weights=False)[0]
         return torch.swapaxes(x, 0, 1)
+
 
 class DownsamplingBlock(nn.Module):
     ''' DownsamplingBlock
@@ -289,3 +363,62 @@ class ConvolutionBlock(nn.Module):
 
     def forward(self, x):
         return self.relu(self.bn(self.conv(x)))
+
+
+class MultiTraceDownsamplingBlock(DownsamplingBlock):
+    def __init__(self, in_channels, out_channels, kernel_size, dilation):
+        super(MultiTraceDownsamplingBlock, self).__init__(
+            in_channels, out_channels, kernel_size, dilation
+        )
+        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=out_channels,
+                              kernel_size=(1, kernel_size), dilation=dilation)
+        self.decimate = nn.AvgPool2d(kernel_size=(1, 3), stride=(1, 2))
+        self.relu = nn.ReLU()
+        self.bn = nn.BatchNorm2d(out_channels)
+
+
+class MultiTraceUpsamplingBlock(UpsamplingBlock):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, interpolation_mode='linear'):
+        super(MultiTraceUpsamplingBlock, self).__init__(
+            in_channels, out_channels, kernel_size, stride, interpolation_mode=interpolation_mode
+        )
+        self.deconv = nn.ConvTranspose2d(in_channels=in_channels, out_channels=out_channels,
+                                         kernel_size=(1, kernel_size), stride=(1, stride))
+        self.relu = nn.ReLU()
+        self.bn = nn.BatchNorm2d(out_channels)
+        self.interpolation_mode = interpolation_mode
+
+    def forward(self, x, skip=None, interp_size=None):
+        if skip is not None:
+            # here we must be explicit about only interpolating along the last dimension
+            x = self.relu(self.bn(self.deconv(x)))
+            Nbatch, Cin, Ntrace, Width = x.shape
+            x = torch.reshape(torch.swapaxes(x, 1, 2), (Nbatch * Ntrace, Cin, Width))
+            up = nn.functional.interpolate(x, size=skip.shape[-1],
+                                           mode=self.interpolation_mode, align_corners=False)
+            up = torch.swapaxes(torch.reshape(up, (Nbatch, Ntrace, Cin, skip.shape[-1])), 2, 1)
+            return torch.cat([up, skip], dim=1)
+        else:
+            x = self.relu(self.bn(self.deconv(x)))
+            # return nn.functional.interpolate(x, size=(*(x.shape[0:-1]), interp_size),
+            #                                  mode=self.interpolation_mode, align_corners=False)
+
+            Nbatch, Cin, Ntrace, Width = x.shape
+            x = torch.reshape(torch.swapaxes(x, 1, 2), (Nbatch * Ntrace, Cin, Width))
+            up = nn.functional.interpolate(x, size=interp_size,
+                                           mode=self.interpolation_mode, align_corners=False)
+            up = torch.swapaxes(torch.reshape(up, (Nbatch, Ntrace, Cin, interp_size)), 2, 1)
+            return up
+
+class MultiTraceConvolutionBlock(ConvolutionBlock):
+    def __init__(self, in_channels, out_channels, kernel_size, padding, stride, dilation):
+        super(MultiTraceConvolutionBlock, self).__init__(in_channels, out_channels,
+                                                         kernel_size, padding, stride, dilation)
+
+        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=out_channels,
+                              kernel_size=(1, kernel_size),
+                              stride=(1, stride),
+                              padding=(0, padding),
+                              dilation=(1, dilation))
+        self.relu = nn.ReLU()
+        self.bn = nn.BatchNorm2d(out_channels)

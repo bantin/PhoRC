@@ -1,13 +1,15 @@
 import numpy as np
-import functools
 import jax
 import jax.numpy as jnp
 import jax.random as jrand
 import jax.scipy as jsp
 import circuitmap as cm
+import psc_sim
 
+from jax import vmap, jit
 from scipy.optimize import curve_fit
 from scipy.ndimage import gaussian_filter1d
+from functools import partial
 
 jax.config.update('jax_platform_name', 'cpu')
 
@@ -343,24 +345,24 @@ def sample_photocurrent_shapes(
     # generate all photocurrent templates.
     # We create a separate function to sample each of previous, current, and
     # next PSC shapes.
-    prev_pc_params = jax.vmap(
-        functools.partial(
+    prev_pc_params = vmap(
+        partial(
             _sample_photocurrent_params,
             **pc_shape_params,
             t_on_min=-7.0 + onset_latency_ms, t_on_max=-7.0 + onset_latency_ms + onset_jitter_ms,
             t_off_min=-2.0 + onset_latency_ms, t_off_max=-2.0 + onset_latency_ms + onset_jitter_ms,
         )
     )(keys)
-    curr_pc_params = jax.vmap(
-        functools.partial(
+    curr_pc_params = vmap(
+        partial(
             _sample_photocurrent_params,
             **pc_shape_params,
             t_on_min=5.0 + onset_latency_ms, t_on_max=5.0 + onset_latency_ms + onset_jitter_ms,
             t_off_min=10.0 + onset_latency_ms, t_off_max=10.0 + onset_latency_ms + onset_jitter_ms,
         )
     )(keys)
-    next_pc_params = jax.vmap(
-        functools.partial(
+    next_pc_params = vmap(
+        partial(
             _sample_photocurrent_params,
             **pc_shape_params,
             t_on_min=38.0 + onset_latency_ms, t_on_max=38.0 + onset_latency_ms + onset_jitter_ms,
@@ -374,8 +376,8 @@ def sample_photocurrent_shapes(
 
     # Note that we simulate using a longer window than we'll eventually use.
     time = jnp.arange(tstart / msecs_per_sample, tend / msecs_per_sample) * msecs_per_sample
-    batched_photocurrent_shape = jax.vmap(
-        functools.partial(
+    batched_photocurrent_shape = vmap(
+        partial(
             photocurrent_shape,
             t=time,
             time_zero_idx=time_zero_idx,
@@ -391,113 +393,146 @@ def sample_photocurrent_shapes(
     if add_target_gp:
         stim_start_idx = int(stim_start // msecs_per_sample)
         key = jrand.fold_in(key, 0)
-        target_gp = np.array(_sample_gp(
+        target_gp = _sample_gp(
             key, 
             curr_pc_shapes,
             gp_lengthscale=target_gp_lengthscale,
             gp_scale=target_gp_scale,
-        ))
-        target_gp = np.maximum(0, target_gp)
-        curr_pc_shapes = np.array(curr_pc_shapes)
-        curr_pc_shapes[:, stim_start_idx+10:] += target_gp[:, stim_start_idx+10:]
-        curr_pc_shapes = cm.neural_waveform_demixing._monotone_decay_filter(
-            curr_pc_shapes,
-            inplace=True,
         )
+        target_gp = jax.nn.softplus(target_gp)
+        curr_pc_shapes.at[:, stim_start_idx+10:].add(target_gp[:, stim_start_idx+10:])
 
     return prev_pc_shapes, curr_pc_shapes, next_pc_shapes
 
-
-def sample_photocurrent_expts_batch(
-    key, num_expts, num_traces_per_expt, trial_dur,
-    pc_scale_range=(0.05, 2.0),
+@partial(jit, static_argnames=(
+    'add_target_gp', 'msecs_per_sample', 'num_traces',
+    'stim_start', 'tstart', 'tend', 'time_zero_idx'))
+def sample_photocurrent_experiment(
+    key, num_traces=32, 
     onset_jitter_ms=1.0,
     onset_latency_ms=0.2,
     pc_shape_params=None,
-    iid_noise_scale_range=(0.01, 0.05),
-    gp_scale_range=(0.01, 2.0),
+    psc_shape_params=None,
     min_pc_scale = 0.05,
+    max_pc_scale = 10.0,
     min_pc_fraction = 0.1,
-    max_pc_fraction = 0.9,
-    prev_pc_fraction = 0.1,
-    gp_lengthscale = 50,
+    max_pc_fraction = 0.95,
     add_target_gp=True,
     target_gp_lengthscale=25.0,
 	target_gp_scale=0.01,
-    linear_onset_frac=0.5
+    linear_onset_frac=0.5,
+    msecs_per_sample=0.05,
+    stim_start=5.0,
+    tstart=-10.0,
+    tend=45.0,
+    time_zero_idx=200,
     ):
+    keys = iter(jrand.split(key, num=10))
 
     if pc_shape_params is None:
-        pc_shape_params = _default_pc_shape_params()
+        pc_shape_params = dict(
+           O_inf_min=0.3,
+            O_inf_max=1.0,
+            R_inf_min=0.3,
+            R_inf_max=1.0,
+            tau_o_min=3,
+            tau_o_max=20,
+            tau_r_min=18,
+            tau_r_max=35, 
+        )
 
-    # generate all photocurrent templates.
-    # We create a separate function to sample each of previous, current, and
-    # next PSC shapes.
-    prev_pc_shapes, curr_pc_shapes, next_pc_shapes = \
+    if psc_shape_params is None:
+        psc_shape_params = dict(
+            tau_r_lower = 10,
+            tau_r_upper = 40,
+            tau_diff_lower = 60,
+            tau_diff_upper = 120,
+            trial_dur=900,
+            gp_scale=0.045,
+            delta_lower=160,
+            delta_upper=400,
+            next_delta_lower=400,
+            next_delta_upper=899,
+            prev_delta_upper=150,
+            noise_std_lower=0.001,
+            noise_std_upper=0.02,
+            gp_lengthscale=45,
+            
+        )
+
+    # Sample photocurrent waveform and scale randomly
+    prev_pc_shape, curr_pc_shape, next_pc_shape = \
 			sample_photocurrent_shapes(
-				key,
-				num_expts,
+				next(keys),
+				1,
 				onset_jitter_ms=onset_jitter_ms,
 				onset_latency_ms=onset_latency_ms,
 				pc_shape_params=pc_shape_params,
 				add_target_gp=add_target_gp,
 				target_gp_lengthscale=target_gp_lengthscale,
 				target_gp_scale=target_gp_scale,
-				linear_onset_frac=linear_onset_frac)
-    key = jax.random.fold_in(key, 0)
+				linear_onset_frac=linear_onset_frac,
+                msecs_per_sample=msecs_per_sample,
+                stim_start=stim_start,
+                tstart=tstart,
+                tend=tend,
+                time_zero_idx=time_zero_idx,)
+    prev_pcs = _sample_scales(
+        next(keys), min_pc_fraction, max_pc_fraction, num_traces, min_pc_scale, max_pc_scale
+    )[:, None] * prev_pc_shape
 
-    # Generate all psc traces from neural demixer.
-    # This is faster than calling it separately many times.
-    # Here, we generate noiseless PSC traces, since we will add noise
-    # the summed traces (PCs + PSCs) at once.
-    demixer = cm.NeuralDemixer()
-    demixer.generate_training_data(
-        size=num_expts * num_traces_per_expt,
-        training_fraction=1.0,
-        noise_std_upper=0.0,
-        noise_std_lower=0.0,
-        gp_scale=0.0,
-    )
-    pscs, _ = demixer.training_data
-    pscs_batched = pscs.reshape(num_expts, num_traces_per_expt, trial_dur)
+    curr_pcs = _sample_scales(
+        next(keys), min_pc_fraction, max_pc_fraction, num_traces, min_pc_scale, max_pc_scale
+    )[:, None] * curr_pc_shape
 
-    sample_experiment_noise_and_scales_batch = jax.vmap(
-        _sample_experiment_noise_and_scales,
-        in_axes=(0, 0, 0, 0, 0, None, 0, None, None, None, None, 0, 0),
-    )
+    next_pcs = _sample_scales(
+        next(keys), min_pc_fraction, max_pc_fraction, num_traces, min_pc_scale, max_pc_scale
+    )[:, None] * next_pc_shape
 
-    # mimic varying opsin / noise levels by experiment:
-    # each experiment will have a different maximum photocurrent scale.
-    key = jrand.fold_in(key, 0)
-    max_pc_scales = jrand.uniform(
-        key, minval=pc_scale_range[0], maxval=pc_scale_range[1],
-        shape=(num_expts,)
-    )
-    key = jrand.fold_in(key, 0)
-    gp_scales = jrand.uniform(
-        key, minval=gp_scale_range[0], maxval=gp_scale_range[1],
-        shape=(num_expts,)
-    )
-    key = jrand.fold_in(key, 0)
-    iid_noise_scales = jrand.uniform(
-        key, minval=iid_noise_scale_range[0], maxval=iid_noise_scale_range[1],
-        shape=(num_expts,)
+    # Sample batch of PSC background traces. Fold in keyword args
+    # first since vmap doesn't like them.
+    _sample_pscs_partial = partial(psc_sim._sample_pscs_single_trace, **psc_shape_params)
+    sample_pscs_batch = vmap(_sample_pscs_partial)
 
-    )
-    
-    keys = jrand.split(key, num=num_expts)
-    return sample_experiment_noise_and_scales_batch(
-        keys,
-        curr_pc_shapes,
-        prev_pc_shapes,
-        next_pc_shapes,
-        pscs_batched,
-        min_pc_scale,
-        max_pc_scales,
-        min_pc_fraction,
-        max_pc_fraction,
-        prev_pc_fraction,
-        gp_lengthscale,
-        gp_scales,
-        iid_noise_scales,
-    )
+    psc_keys = jrand.split(next(keys), num=num_traces)
+    pscs_and_noise, _ = sample_pscs_batch(psc_keys)
+
+    input = pscs_and_noise + prev_pcs + curr_pcs + next_pcs
+    target = curr_pcs
+    return (input, target)
+
+
+if __name__ == "__main__":
+    import matplotlib.pyplot as plt
+
+    key = jrand.PRNGKey(0)
+    keys = jrand.split(key, 20)
+    sampler_func = vmap(partial(sample_photocurrent_experiment, num_traces=32, 
+        onset_jitter_ms=1.0,
+        onset_latency_ms=0.2,
+        pc_shape_params=None,
+        psc_shape_params=None,
+        min_pc_scale = 0.05,
+        max_pc_scale = 10.0,
+        min_pc_fraction = 0.1,
+        max_pc_fraction = 0.95,
+        add_target_gp=True,
+        target_gp_lengthscale=25.0,
+        target_gp_scale=0.01,
+        linear_onset_frac=0.5,
+        msecs_per_sample=0.05,
+        stim_start=5.0,
+        tstart=-10.0,
+        tend=47.0,
+        time_zero_idx=200,))
+    inputs, targets = sampler_func(keys)
+
+    num_plots = 10
+    fig, axs = plt.subplots(nrows=num_plots, ncols=2)
+
+    for i in range(num_plots):
+        axs[i,0].plot(inputs[i].T)
+        axs[i,1].plot(targets[i].T)
+
+    print(inputs[0].shape)
+    plt.show()

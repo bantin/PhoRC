@@ -55,7 +55,7 @@ if __name__ == "__main__":
                 up_filter_sizes=(64, 32, 16, 4),
             ))
         elif args.network_type == 'subtractr':
-            net = Subtractr().load_from_checkpoint(args.subtractr_checkpoint)
+            net = Subtractr.load_from_checkpoint(args.subtractr_checkpoint)
         else:
             raise ValueError('unrecognized network type: %s' % args.network_type)
 
@@ -91,7 +91,8 @@ if __name__ == "__main__":
         results['targets'] = targets
 
     # sort results so that reshaping caviar weights works
-    results = util.sort_results(results)
+    # results = util.sort_results(results)
+    # TODO: add this back for multispot data
 
     # For multispot data, run lasso on raw, subtracted, and demixed
     # instead of using the maps from the results dict

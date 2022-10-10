@@ -1,5 +1,6 @@
 from ast import Mult
 from multiprocessing.sharedctypes import Value
+from typing import Union
 import numpy as np
 import circuitmap as cm
 
@@ -16,7 +17,7 @@ import photocurrent_sim
 import jax
 import jax.random as jrand
 from itertools import cycle
-from backbones import MultiTraceConv, SetTransformer, MultiTraceConvAttention
+from backbones import MultiTraceConv, SetTransformer, MultiTraceConvAttention, SingleTraceConv
 jax.config.update('jax_platform_name', 'cpu')
 
 
@@ -25,6 +26,7 @@ class Subtractr(pl.LightningModule):
     def add_model_specific_args(parent_parser):
         parser = parent_parser.add_argument_group("Subtractr")
         parser.add_argument('--learning_rate', type=float, default=1e-3)
+        parser.add_argument('--batch_size', type=int, default=8)
         parser.add_argument('--num_train', type=int, default=1000)
         parser.add_argument('--num_test', type=int, default=100)
         parser.add_argument('--trial_dur', type=int, default=900)
@@ -75,6 +77,10 @@ class Subtractr(pl.LightningModule):
         # architecture type
         parser.add_argument('--model_type', type=str, default='MultiTraceConv')
 
+        # convolutional args. 
+        parser.add_argument('--down_filter_sizes', nargs=4, type=int, default=(16, 32, 64, 128))
+        parser.add_argument('--up_filter_sizes', nargs=4, type=int, default=(64, 32, 16, 4))
+
         # SetTransformer args
         parser.add_argument('--dim_input', type=int, default=900)
         parser.add_argument('--num_inds', type=int, default=64)
@@ -85,23 +91,23 @@ class Subtractr(pl.LightningModule):
         return parent_parser
 
 
-    def __init__(self, args=None):
-        super(Subtractr, self).__init__()
+    def __init__(self, **hparams):
+        super().__init__()
+        self.save_hyperparameters(hparams)
 
-        # save hyperparms stored in args, if present
-        self.save_hyperparameters(args)
-
-        if args.model_type == 'MultiTraceConv':
-            self.backbone = MultiTraceConv(args=args)
-        elif args.model_type == 'SetTransformer':
-            self.backbone = SetTransformer(args=args)
-        elif args.model_type == 'MultiTraceConvAttention':
-            self.backbone = MultiTraceConvAttention(args=args)
+        if hparams['model_type'] == 'MultiTraceConv':
+            self.backbone = MultiTraceConv(**hparams)
+        elif hparams['model_type'] == 'SetTransformer':
+            self.backbone = SetTransformer(**hparams)
+        elif hparams['model_type'] == 'MultiTraceConvAttention':
+            self.backbone = MultiTraceConvAttention(**hparams)
+        elif hparams['model_type'] == 'SingleTraceConv':
+            self.backbone = SingleTraceConv(**hparams)
         else:
             raise ValueError('Model type not recognized.')
 
-    def forward(self, x):
 
+    def forward(self, x):
         return self.backbone.forward(x)
 
     def configure_optimizers(self):
@@ -127,31 +133,69 @@ class Subtractr(pl.LightningModule):
         loss = self.loss_fn(pred, y)
         self.log('val_loss', loss)
 
-    def __call__(self, traces, monotone_filter=False, monotone_filter_start=500, verbose=True):
+    def __call__(self, traces,
+            monotone_filter=False, monotone_filter_start=500, verbose=True,
+            use_auto_batch_size=True, batch_size=-1, sort=True):
         ''' Run demixer over PSC trace batch and apply monotone decay filter.
         '''
+
+        # define forward call for a single batch
+        def _forward(traces):
+            maxv = np.max(traces, axis=-1, keepdims=True)
+            dem = self.forward(
+                torch.tensor(
+                    (traces/maxv), dtype=torch.float32, device=self.device
+                )
+            ).cpu().detach().numpy().squeeze() * maxv
+
+            if monotone_filter:
+                dem = cm.neural_waveform_demixing._monotone_decay_filter(dem, inplace=False,
+                                                                        monotone_start=monotone_filter_start)
+            return dem
 
         if verbose:
             print('Running photocurrent removal...', end='')
         t1 = time.time()
 
-        maxv = np.max(traces, axis=-1, keepdims=True)
-        dem = self.forward(
-            torch.tensor(
-                (traces/maxv), dtype=torch.float32, device=self.device
-            )
-        ).cpu().detach().numpy().squeeze() * maxv
+        # For multi-trace model, this will group traces of 
+        # similar magnitudes to be in the same batch.
+        if sort:
+            idxs = np.argsort(np.sum(traces, axis=-1))
+        else:
+            idxs = np.arange(num_traces)
+        
+        # save this so that we can return estimates in the original (unsorted) order
+        reverse_idxs = np.argsort(idxs)
+        traces = traces[idxs]
 
-        if monotone_filter:
-            dem = cm.neural_waveform_demixing._monotone_decay_filter(dem, inplace=False,
-                                                                     monotone_start=monotone_filter_start)
+        # if available, automatically break traces into the same size batches
+        # used during training
+        if use_auto_batch_size:
+            batch_size = self.hparams['num_traces_per_experiment']
+        if batch_size == -1:
+            out = _forward(traces)
+        else:
+            out = np.zeros_like(traces)
+            num_traces = traces.shape[0]
+            start_idxs = np.arange(0, num_traces, batch_size)
+            for idx in start_idxs:
+
+                # stop instead of running on incomplete batch
+                if idx+batch_size >= num_traces:
+                    break
+                out[idx:idx+batch_size] = _forward(traces[idx:idx+batch_size])
+            
+            # Run forward on the last batch, in case the number of traces is not
+            # divisible by the batch size
+            out[-batch_size:] = _forward(traces[-batch_size:])
+
 
         t2 = time.time()
         if verbose:
             print('complete (elapsed time %.2fs, device=%s).' %
                   (t2 - t1, self.device))
 
-        return dem
+        return out[reverse_idxs]
 
     def generate_training_data(self,
                                args):
@@ -206,46 +250,30 @@ class Subtractr(pl.LightningModule):
         )
 
 
-class PhotocurrentData(torch.utils.data.IterableDataset):
+class PhotocurrentData(torch.utils.data.Dataset):
     ''' Torch training dataset
     '''
 
-    def __init__(self, expts, min_traces_subsample=10):
+    def __init__(self, expts):
         super(PhotocurrentData).__init__()
         self.N = expts[0].shape[0]
-        self.obs = cycle(iter([np.array(x, dtype=np.float32) for x in expts[0]]))
-        self.targets = cycle(iter([np.array(x, dtype=np.float32) for x in expts[1]]))
-        self.min_traces_subsample = min_traces_subsample
-        self.idx = 0
+        self.obs = [np.array(x, dtype=np.float32) for x in expts[0]]
+        self.targets = [np.array(x, dtype=np.float32) for x in expts[1]]
 
     def __len__(self):
         return self.N
 
-    def __iter__(self):
-        return self
-
-    def __next__(self):
-        these_obs = next(self.obs)
-        these_targets = next(self.targets)
-
-        # num_traces = these_obs.shape[0]
-        # num_traces_to_keep = np.random.randint(
-        #     low=self.min_traces_subsample, high=num_traces)
-        # idxs_to_keep = np.random.randint(
-        #     low=0, high=num_traces, size=num_traces_to_keep)
-
-        # for now, use fixed batch size
-        idxs_to_keep = np.arange(these_obs.shape[0])
-
-        # normalize by the max, as we'll do at test time
-        these_obs = these_obs[idxs_to_keep, :]
+    def __getitem__(self, idx):
+        these_obs = self.obs[idx]
+        these_targets = self.targets[idx]
         maxv = np.max(these_obs, axis=-1, keepdims=True) + 1e-3
+        maxv = np.abs(maxv) # traces not have negative max values
+
         these_obs /= maxv
-
-        these_targets = these_targets[idxs_to_keep, :]
         these_targets /= maxv
-        return (these_obs, these_targets)
 
+        return (these_obs, these_targets)
+        
 class StoreDictKeyPair(argparse.Action):
     def __call__(self, parser, namespace, values, option_string=None):
         my_dict = {}
@@ -281,7 +309,7 @@ if __name__ == "__main__":
 
     args = parse_args(sys.argv[1:])
     # Create subtractr and gen data
-    subtractr = Subtractr(args).float()
+    subtractr = Subtractr(**vars(args)).float()
 
     # seed everything
     pl.seed_everything(0)
@@ -300,9 +328,13 @@ if __name__ == "__main__":
     train_dset = PhotocurrentData(expts=subtractr.train_expts)
     test_dset = PhotocurrentData(expts=subtractr.test_expts)
     train_dataloader = DataLoader(train_dset,
-                                  pin_memory=True, num_workers=0)
+                                  pin_memory=True,
+                                  batch_size=args.batch_size,
+                                  num_workers=0)
     test_dataloader = DataLoader(test_dset,
-                                 pin_memory=True, num_workers=0)
+                                 pin_memory=True,
+                                 batch_size=args.batch_size,
+                                 num_workers=0)
 
     # Run torch update loops
     trainer = pl.Trainer.from_argparse_args(args)
