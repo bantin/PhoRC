@@ -5,6 +5,7 @@ import jax.random as jrand
 import jax.scipy as jsp
 import circuitmap as cm
 import psc_sim
+import scipy.signal as sg
 
 from jax import vmap, jit
 from scipy.optimize import curve_fit
@@ -501,6 +502,16 @@ def sample_photocurrent_experiment(
     input = pscs_and_noise + prev_pcs + curr_pcs + next_pcs
     target = curr_pcs
     return (input, target)
+
+
+def postprocess_photocurrent_experiment(exp, lp_cutoff=500, msecs_per_sample=0.05, scale=True):
+    if scale:
+        maxv = np.max(exp, axis=-1, keepdims=True)
+        exp /= (maxv + 1e-3)
+
+    sos = sg.butter(4, lp_cutoff, btype='low', fs=int(1/msecs_per_sample*1000), output='sos')
+    exp = sg.sosfiltfilt(sos, exp, axis=-1)
+    return exp
 
 
 if __name__ == "__main__":

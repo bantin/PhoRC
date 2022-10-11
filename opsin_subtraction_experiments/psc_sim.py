@@ -25,8 +25,6 @@ def _sample_psc_kernel(key, trial_dur=900, tau_r_lower=10, tau_r_upper=80, tau_d
         next(keys), minval=delta_lower, maxval=delta_upper, shape=(max_samples,))
     xeval = jnp.arange(trial_dur)
 
-    # pscs = np.array([_kernel_func(tau_r_samples[i], tau_d_samples[i], delta_samples[i])(xeval)
-    #     for i in range(n_samples)])
     pscs = psc_kernel_batched(
         tau_r_samples, tau_d_samples, delta_samples, xeval)
 
@@ -43,14 +41,14 @@ def _sample_psc_kernel(key, trial_dur=900, tau_r_lower=10, tau_r_upper=80, tau_d
     return pscs/max_vec * amplitude
 
 
-# @partial(jit, static_argnames=('trial_dur', 'mode_probs', 'prev_mode_probs', 'next_mode_probs', 'scale_by_max'))
+@partial(jit, static_argnames=('trial_dur', 'mode_probs', 'prev_mode_probs', 'next_mode_probs',))
 def _sample_pscs_single_trace(key, trial_dur=900, size=1000, training_fraction=0.9, lp_cutoff=500,
                               srate=20000, tau_r_lower=10, tau_r_upper=80, tau_diff_lower=2, tau_diff_upper=150,
                               delta_lower=160, delta_upper=400, next_delta_lower=400, next_delta_upper=899,
                               prev_delta_lower=-400, prev_delta_upper=-100,
                               mode_probs=None, prev_mode_probs=None, next_mode_probs=None,
                               noise_std_lower=0.01, noise_std_upper=0.1, gp_lengthscale=25, gp_scale=0.01,
-                              max_modes=4, scale_by_max=True):
+                              max_modes=4):
 
     if mode_probs is None:
         mode_probs = jnp.array([0.4, 0.4, 0.1, 0.1])
@@ -85,11 +83,6 @@ def _sample_pscs_single_trace(key, trial_dur=900, size=1000, training_fraction=0
     gp_noise = jnp.squeeze(photocurrent_sim._sample_gp(next(keys), target[None,:], gp_lengthscale, gp_scale))
     iid_noise = jrand.normal(next(keys), shape=(trial_dur,)) * noise_std
     inputs = prev_psc + target + next_psc + iid_noise + gp_noise
-
-    if scale_by_max:
-        maxv = jnp.max(inputs)
-        inputs /= maxv
-        target /= maxv
 
     return inputs, target
 

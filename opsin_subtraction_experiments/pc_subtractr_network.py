@@ -1,24 +1,29 @@
-from ast import Mult
-from multiprocessing.sharedctypes import Value
-from typing import Union
 import numpy as np
 import circuitmap as cm
 
 import torch
 import torch.nn as nn
-from torch.utils.data import Dataset, DataLoader
 import pytorch_lightning as pl
 import time
 import sys
+import os
 
 import argparse
-from argparse import ArgumentParser
 import photocurrent_sim
 import jax
+import jax.numpy as jnp
 import jax.random as jrand
-from itertools import cycle
-from backbones import MultiTraceConv, SetTransformer, MultiTraceConvAttention, SingleTraceConv
-jax.config.update('jax_platform_name', 'cpu')
+import backbones
+import glob
+
+from functools import partial
+from torch.utils.data import Dataset, DataLoader
+from argparse import ArgumentParser
+from jax import vmap
+from photocurrent_sim import sample_photocurrent_experiment, postprocess_photocurrent_experiment
+
+# jax.config.update('jax_platform_name', 'cpu')
+os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = 'false'
 
 
 class Subtractr(pl.LightningModule):
@@ -96,13 +101,13 @@ class Subtractr(pl.LightningModule):
         self.save_hyperparameters(hparams)
 
         if hparams['model_type'] == 'MultiTraceConv':
-            self.backbone = MultiTraceConv(**hparams)
+            self.backbone = backbones.MultiTraceConv(**hparams)
         elif hparams['model_type'] == 'SetTransformer':
-            self.backbone = SetTransformer(**hparams)
+            self.backbone = backbones.SetTransformer(**hparams)
         elif hparams['model_type'] == 'MultiTraceConvAttention':
-            self.backbone = MultiTraceConvAttention(**hparams)
+            self.backbone = backbones.MultiTraceConvAttention(**hparams)
         elif hparams['model_type'] == 'SingleTraceConv':
-            self.backbone = SingleTraceConv(**hparams)
+            self.backbone = backbones.SingleTraceConv(**hparams)
         else:
             raise ValueError('Model type not recognized.')
 
@@ -132,6 +137,7 @@ class Subtractr(pl.LightningModule):
         y = torch.squeeze(y)
         loss = self.loss_fn(pred, y)
         self.log('val_loss', loss)
+        return loss
 
     def __call__(self, traces,
             monotone_filter=False, monotone_filter_start=500, verbose=True,
@@ -210,52 +216,59 @@ class Subtractr(pl.LightningModule):
             tau_r_max=args.tau_r_max,
         )
         key = jrand.PRNGKey(0)
-        train_key, test_key = jrand.split(key, num=2)
-        self.train_expts = photocurrent_sim.sample_photocurrent_expts_batch(
-            train_key,
-            args.num_train,
-            args.num_traces_per_expt,
-            trial_dur=900,
-            pc_scale_range=(args.pc_scale_min, args.pc_scale_max),
-            gp_scale_range=(args.gp_scale_min, args.gp_scale_max),
-            iid_noise_scale_range=(
-                args.iid_noise_scale_min, args.iid_noise_scale_max),
+        keys = iter(jrand.split(key, num=2))
+
+        sampler_func = vmap(partial(sample_photocurrent_experiment,
+            num_traces=args.num_traces_per_expt, 
+            onset_jitter_ms=args.onset_jitter_ms,
+            onset_latency_ms=args.onset_latency_ms,
+            pc_shape_params=pc_shape_params,
+            psc_shape_params=None,
+            min_pc_scale=args.pc_scale_min,
+            max_pc_scale=args.pc_scale_max,
             min_pc_fraction=args.min_pc_fraction,
             max_pc_fraction=args.max_pc_fraction,
-            gp_lengthscale=args.gp_lengthscale,
-            pc_shape_params=pc_shape_params,
             add_target_gp=args.add_target_gp,
             target_gp_lengthscale=args.target_gp_lengthscale,
             target_gp_scale=args.target_gp_scale,
             linear_onset_frac=args.linear_onset_frac,
-        )
+            msecs_per_sample=0.05,
+            stim_start=5.0,
+            tstart=-10.0,
+            tend=47.0,
+            time_zero_idx=200,))
 
-        self.test_expts = photocurrent_sim.sample_photocurrent_expts_batch(
-            test_key,
-            args.num_test,
-            args.num_traces_per_expt,
-            trial_dur=900,
-            pc_scale_range=(args.pc_scale_min, args.pc_scale_max),
-            gp_scale_range=(args.gp_scale_min, args.gp_scale_max),
-            iid_noise_scale_range=(
-                args.iid_noise_scale_min, args.iid_noise_scale_max),
-            min_pc_fraction=args.min_pc_fraction,
-            max_pc_fraction=args.max_pc_fraction,
-            gp_lengthscale=args.gp_lengthscale,
-            pc_shape_params=pc_shape_params,
-            add_target_gp=args.add_target_gp,
-            target_gp_lengthscale=args.target_gp_lengthscale,
-            target_gp_scale=args.target_gp_scale,
-            linear_onset_frac=args.linear_onset_frac,
-        )
+        train_keys = jrand.split(next(keys), args.num_train)
+        test_keys = jrand.split(next(keys), args.num_test)
+
+        if args.data_on_disk:
+
+            # make train/test folders
+            os.makedirs(os.path.join(args.data_save_path, 'train'), exist_ok=True)
+            os.makedirs(os.path.join(args.data_save_path, 'test'), exist_ok=True)
+
+            for (keyset, label) in zip([train_keys, test_keys], ['train', 'test']):
+                keyset_batched = jnp.split(keyset, jnp.arange(0, keyset.shape[0], args.sim_batch_size)[1:])
+                for batch_idx,  these_keys in enumerate(keyset_batched):
 
 
-class PhotocurrentData(torch.utils.data.Dataset):
+                    expts = sampler_func(these_keys)
+                    curr_path = os.path.join(args.data_save_path, label)
+                    curr_path = os.path.join(curr_path, '%s_batch%d' % (label, batch_idx))
+                    np.save(curr_path, expts)
+
+        else:
+            train_expts = sampler_func(train_keys)
+            test_expts = sampler_func(test_keys)
+
+
+
+class MemDataset(torch.utils.data.Dataset):
     ''' Torch training dataset
     '''
 
     def __init__(self, expts):
-        super(PhotocurrentData).__init__()
+        super(MemDataset).__init__()
         self.N = expts[0].shape[0]
         self.obs = [np.array(x, dtype=np.float32) for x in expts[0]]
         self.targets = [np.array(x, dtype=np.float32) for x in expts[1]]
@@ -266,13 +279,20 @@ class PhotocurrentData(torch.utils.data.Dataset):
     def __getitem__(self, idx):
         these_obs = self.obs[idx]
         these_targets = self.targets[idx]
-        maxv = np.max(these_obs, axis=-1, keepdims=True) + 1e-3
-        maxv = np.abs(maxv) # traces not have negative max values
-
-        these_obs /= maxv
-        these_targets /= maxv
 
         return (these_obs, these_targets)
+
+
+class DiskDataset(torch.utils.data.Dataset):
+    def __init__(self, path):
+        self.files = glob.glob(path + '*.npy')
+
+    def __len__(self):
+        return len(self.files)
+
+    def __getitem__(self, idx):
+        (inputs, targets) = np.load(self.files[idx])
+        return (np.array(inputs, dtype=np.float32), np.array(targets, dtype=np.float32))
         
 class StoreDictKeyPair(argparse.Action):
     def __call__(self, parser, namespace, values, option_string=None):
@@ -290,6 +310,13 @@ def parse_args(argseq):
     parser.add_argument('--num_workers', type=int, default=0)
     parser.add_argument('--data_save_path', type=str, default="")
     parser.add_argument('--data_load_path', type=str, default="")
+
+    # whether we put the datset on disk
+    parser.add_argument('--data_on_disk', action='store_true')
+    parser.add_argument('--no_data_on_disk', dest='data_on_disk', action='store_false')
+    parser.set_defaults(data_on_disk=False)
+    parser.add_argument('--sim_batch_size', type=int, default=10)
+
     # parser.add_argument("--psc_generation_kwargs", dest="psc_generation_kwargs", action=StoreDictKeyPair,
     #                     default=dict(gp_scale=0.045, delta_lower=160,
     #                                  delta_upper=400, next_delta_lower=400, next_delta_upper=899,
@@ -310,31 +337,40 @@ if __name__ == "__main__":
     args = parse_args(sys.argv[1:])
     # Create subtractr and gen data
     subtractr = Subtractr(**vars(args)).float()
-
     # seed everything
     pl.seed_everything(0)
 
     if args.data_load_path != "":
-        dat = np.load(args.data_load_path, allow_pickle=True)
-        subtractr.train_expts = [(x[0], x[1]) for x in dat['train_expts']]
-        subtractr.test_expts = [(x[0], x[1]) for x in dat['test_expts']]
+       raise NotImplementedError
     else:
         subtractr.generate_training_data(args)
 
-    if args.data_save_path != "":
-        np.savez(args.data_save_path, train_expts=subtractr.train_expts,
-                 test_expts=subtractr.test_expts)
+    # free any gpu mem used by jax
+    backend = jax.lib.xla_bridge.get_backend()
+    for buf in backend.live_buffers():
+        buf.delete()
 
-    train_dset = PhotocurrentData(expts=subtractr.train_expts)
-    test_dset = PhotocurrentData(expts=subtractr.test_expts)
-    train_dataloader = DataLoader(train_dset,
-                                  pin_memory=True,
-                                  batch_size=args.batch_size,
-                                  num_workers=0)
-    test_dataloader = DataLoader(test_dset,
-                                 pin_memory=True,
-                                 batch_size=args.batch_size,
-                                 num_workers=0)
+    subtractr = subtractr.to(torch.float)
+
+
+    if args.data_on_disk:
+        train_dset = DiskDataset(os.path.join(args.data_save_path, 'train/'))
+        test_dset = DiskDataset(os.path.join(args.data_save_path, 'test/'))
+
+        train_dataloader = DataLoader(train_dset,
+                                    pin_memory=True,
+                                    batch_size=None,
+                                    sampler=None,
+                                    num_workers=0)
+
+        test_dataloader = DataLoader(train_dset,
+                                    pin_memory=True,
+                                    batch_size=None,
+                                    sampler=None,
+                                    num_workers=0)
+
+    else:
+        raise NotImplementedError
 
     # Run torch update loops
     trainer = pl.Trainer.from_argparse_args(args)
