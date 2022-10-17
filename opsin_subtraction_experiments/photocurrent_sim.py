@@ -3,7 +3,6 @@ import jax
 import jax.numpy as jnp
 import jax.random as jrand
 import jax.scipy as jsp
-import circuitmap as cm
 import psc_sim
 import scipy.signal as sg
 
@@ -12,7 +11,17 @@ from scipy.optimize import curve_fit
 from scipy.ndimage import gaussian_filter1d
 from functools import partial
 
-jax.config.update('jax_platform_name', 'cpu')
+
+def monotone_decay_filter(arr, monotone_start=500):
+    ''' Enforce monotone decay beyond kwarg monotone_start. Performed in-place by default.
+    '''
+
+    def f(carry, t):
+        carry = jnp.minimum(carry, arr[:,t])
+        return carry, carry
+        
+    return (jax.lax.scan(f, arr[:,monotone_start], np.arange(monotone_start, arr.shape[1]))[1]).T
+    
 
 def _photocurrent_shape(
     O_inf, R_inf, tau_o, tau_r, g,  # shape params
@@ -316,9 +325,8 @@ def sample_from_templates(
         target_gp = np.maximum(0, target_gp)
         out = np.array(out)
         out[:, stim_start_idx+10:] += target_gp[:, stim_start_idx+10:]
-        out = cm.neural_waveform_demixing._monotone_decay_filter(
+        out = monotone_decay_filter(
             out,
-            inplace=True,
         )
 
     return out
@@ -338,6 +346,7 @@ def sample_photocurrent_shapes(
         add_target_gp=True,
         target_gp_lengthscale=50,
         target_gp_scale=0.01,
+        monotone_filter_start=500,
     ):
     keys = jrand.split(key, num=num_expts)
     if pc_shape_params is None:
@@ -402,6 +411,8 @@ def sample_photocurrent_shapes(
         )
         target_gp = jax.nn.softplus(target_gp)
         curr_pc_shapes.at[:, stim_start_idx+10:].add(target_gp[:, stim_start_idx+10:])
+        curr_pc_shapes.at[:, monotone_filter_start:].set(
+            monotone_decay_filter(curr_pc_shapes, monotone_start=monotone_filter_start))
 
     return prev_pc_shapes, curr_pc_shapes, next_pc_shapes
 
@@ -437,9 +448,9 @@ def sample_photocurrent_experiment(
             R_inf_min=0.3,
             R_inf_max=1.0,
             tau_o_min=3,
-            tau_o_max=20,
-            tau_r_min=18,
-            tau_r_max=35, 
+            tau_o_max=30,
+            tau_r_min=3,
+            tau_r_max=30, 
         )
 
     if psc_shape_params is None:
@@ -501,6 +512,10 @@ def sample_photocurrent_experiment(
 
     input = pscs_and_noise + prev_pcs + curr_pcs + next_pcs
     target = curr_pcs
+
+    maxv = jnp.max(input, axis=-1, keepdims=True)
+    input /= maxv
+    target /= maxv
     return (input, target)
 
 
@@ -517,7 +532,12 @@ def postprocess_photocurrent_experiment(exp, lp_cutoff=500, msecs_per_sample=0.0
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
 
-    key = jrand.PRNGKey(0)
+    key = jrand.PRNGKey(1)
+
+    # test monotone decay filt
+    a = jrand.uniform(key, shape=(1,20))
+    b = monotone_decay_filter(a, monotone_start=0)
+
     keys = jrand.split(key, 20)
     sampler_func = vmap(partial(sample_photocurrent_experiment, num_traces=32, 
         onset_jitter_ms=1.0,

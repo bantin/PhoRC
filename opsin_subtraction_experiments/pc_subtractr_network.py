@@ -1,5 +1,5 @@
 import numpy as np
-import circuitmap as cm
+# import circuitmap as cm
 
 import torch
 import torch.nn as nn
@@ -24,6 +24,7 @@ from photocurrent_sim import sample_photocurrent_experiment, postprocess_photocu
 
 # jax.config.update('jax_platform_name', 'cpu')
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = 'false'
+os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"] = 'platform'
 
 
 class Subtractr(pl.LightningModule):
@@ -70,10 +71,10 @@ class Subtractr(pl.LightningModule):
         parser.add_argument('--O_inf_max', type=float, default=1.0)
         parser.add_argument('--R_inf_min', type=float, default=0.3)
         parser.add_argument('--R_inf_max', type=float, default=1.0)
-        parser.add_argument('--tau_o_min', type=float, default=5)
-        parser.add_argument('--tau_o_max', type=float, default=7)
-        parser.add_argument('--tau_r_min', type=float, default=26)
-        parser.add_argument('--tau_r_max', type=float, default=29)
+        parser.add_argument('--tau_o_min', type=float, default=3)
+        parser.add_argument('--tau_o_max', type=float, default=35)
+        parser.add_argument('--tau_r_min', type=float, default=3)
+        parser.add_argument('--tau_r_max', type=float, default=35)
 
         # photocurrent timing args
         parser.add_argument('--onset_jitter_ms', type=float, default=1.0)
@@ -150,13 +151,14 @@ class Subtractr(pl.LightningModule):
             maxv = np.max(traces, axis=-1, keepdims=True)
             dem = self.forward(
                 torch.tensor(
-                    (traces/maxv), dtype=torch.float32, device=self.device
+                    (traces/maxv)[None,:,:], dtype=torch.float32, device=self.device
                 )
             ).cpu().detach().numpy().squeeze() * maxv
 
             if monotone_filter:
-                dem = cm.neural_waveform_demixing._monotone_decay_filter(dem, inplace=False,
-                                                                        monotone_start=monotone_filter_start)
+                filt_start=500
+                filtered = photocurrent_sim.monotone_decay_filter(dem, monotone_start=filt_start)
+                dem.at[:,filt_start:].set(filtered)
             return dem
 
         if verbose:
@@ -177,7 +179,7 @@ class Subtractr(pl.LightningModule):
         # if available, automatically break traces into the same size batches
         # used during training
         if use_auto_batch_size:
-            batch_size = self.hparams['num_traces_per_experiment']
+            batch_size = self.hparams['num_traces_per_expt']
         if batch_size == -1:
             out = _forward(traces)
         else:
@@ -258,8 +260,8 @@ class Subtractr(pl.LightningModule):
                     np.save(curr_path, expts)
 
         else:
-            train_expts = sampler_func(train_keys)
-            test_expts = sampler_func(test_keys)
+            self.train_expts = sampler_func(train_keys)
+            self.test_expts = sampler_func(test_keys)
 
 
 
@@ -270,15 +272,15 @@ class MemDataset(torch.utils.data.Dataset):
     def __init__(self, expts):
         super(MemDataset).__init__()
         self.N = expts[0].shape[0]
-        self.obs = [np.array(x, dtype=np.float32) for x in expts[0]]
-        self.targets = [np.array(x, dtype=np.float32) for x in expts[1]]
+        self.obs = expts[0]
+        self.targets = expts[1]
 
     def __len__(self):
         return self.N
 
     def __getitem__(self, idx):
-        these_obs = self.obs[idx]
-        these_targets = self.targets[idx]
+        these_obs = np.array(self.obs[idx], dtype=np.float32)
+        these_targets = np.array(self.targets[idx], dtype=np.float32)
 
         return (these_obs, these_targets)
 
@@ -345,10 +347,6 @@ if __name__ == "__main__":
     else:
         subtractr.generate_training_data(args)
 
-    # free any gpu mem used by jax
-    backend = jax.lib.xla_bridge.get_backend()
-    for buf in backend.live_buffers():
-        buf.delete()
 
     subtractr = subtractr.to(torch.float)
 
@@ -356,21 +354,30 @@ if __name__ == "__main__":
     if args.data_on_disk:
         train_dset = DiskDataset(os.path.join(args.data_save_path, 'train/'))
         test_dset = DiskDataset(os.path.join(args.data_save_path, 'test/'))
+        effective_batch_size = None
 
-        train_dataloader = DataLoader(train_dset,
-                                    pin_memory=True,
-                                    batch_size=None,
-                                    sampler=None,
-                                    num_workers=0)
+        # free any gpu mem used by jax
+        backend = jax.lib.xla_bridge.get_backend()
+        for buf in backend.live_buffers():
+            buf.delete()
 
-        test_dataloader = DataLoader(train_dset,
-                                    pin_memory=True,
-                                    batch_size=None,
-                                    sampler=None,
-                                    num_workers=0)
-
+        
     else:
-        raise NotImplementedError
+        train_dset = MemDataset(subtractr.train_expts)
+        test_dset = MemDataset(subtractr.test_expts)
+        effective_batch_size = args.batch_size
+
+    train_dataloader = DataLoader(train_dset,
+                                pin_memory=True,
+                                batch_size=effective_batch_size,
+                                sampler=None,
+                                num_workers=args.num_workers)
+
+    test_dataloader = DataLoader(test_dset,
+                                pin_memory=True,
+                                batch_size=effective_batch_size,
+                                sampler=None,
+                                num_workers=args.num_workers)
 
     # Run torch update loops
     trainer = pl.Trainer.from_argparse_args(args)
