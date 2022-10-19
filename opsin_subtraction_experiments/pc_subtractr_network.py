@@ -55,6 +55,9 @@ class Subtractr(pl.LightningModule):
         parser.add_argument('--use_ls_solve', action='store_true')
         parser.add_argument('--no_use_ls_solve', dest='use_ls_solve', action='store_false')
         parser.set_defaults(use_ls_solve=False)
+
+        # define how we normalize the input data
+        parser.add_argument('--normalize_type', default='max')
         
         # whether we add a gp to the target waveforms
         parser.add_argument('--add_target_gp', action='store_true')
@@ -151,7 +154,12 @@ class Subtractr(pl.LightningModule):
 
         # define forward call for a single batch
         def _forward(traces):
-            maxv = (np.linalg.norm(traces) / traces.shape[0])
+            normalize_type = self.hparams.get('normalize_type', 'l2')
+            if normalize_type == 'l2':
+                maxv = (np.linalg.norm(traces) / traces.shape[0])
+            elif normalize_type == 'max':
+                maxv = np.max(traces, axis=-1, keepdims=True)
+
             dem = self.forward(
                 torch.tensor(
                     (traces/maxv)[None,:,:], dtype=torch.float32, device=self.device
@@ -242,7 +250,8 @@ class Subtractr(pl.LightningModule):
             stim_start=5.0,
             tstart=-10.0,
             tend=47.0,
-            time_zero_idx=200,))
+            time_zero_idx=200,
+            normalize_type=args.normalize_type))
 
         train_keys = jrand.split(next(keys), args.num_train)
         test_keys = jrand.split(next(keys), args.num_test)

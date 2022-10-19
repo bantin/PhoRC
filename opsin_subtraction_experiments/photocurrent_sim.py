@@ -84,7 +84,7 @@ def _photocurrent_shape(
         
     # convolve with gaussian to smooth
     x = jnp.linspace(-3, 3, conv_window_len)
-    window = jsp.stats.norm.pdf(x, scale=25)
+    window = jsp.stats.norm.pdf(x, scale=12)
     i_photo = jsp.signal.convolve(i_photo, window, mode='same')
     i_photo /= (jnp.max(i_photo) + 1e-3)
 
@@ -423,7 +423,7 @@ def sample_photocurrent_shapes(
 
 @partial(jit, static_argnames=(
     'add_target_gp', 'msecs_per_sample', 'num_traces',
-    'stim_start', 'tstart', 'tend', 'time_zero_idx'))
+    'stim_start', 'tstart', 'tend', 'time_zero_idx', 'normalize_type'))
 def sample_photocurrent_experiment(
     key, num_traces=32, 
     onset_jitter_ms=1.0,
@@ -451,6 +451,7 @@ def sample_photocurrent_experiment(
     gp_scale_max=0.1,
     iid_noise_std_min=0.01,
     iid_noise_std_max=0.1,
+    normalize_type='l2',
     ):
     keys = iter(jrand.split(key, num=12))
 
@@ -533,7 +534,13 @@ def sample_photocurrent_experiment(
     input = pscs + prev_pcs + curr_pcs + next_pcs + iid_noise + gp_noise
     target = curr_pcs
 
-    maxv = (jnp.linalg.norm(input) / num_traces)
+    if normalize_type == 'l2':
+        maxv = (jnp.linalg.norm(input) / num_traces)
+    elif normalize_type == 'max':
+        maxv = (jnp.max(input, axis=-1, keepdims=True))
+    else:
+        raise ValueError('unknown value for normalize_type')
+
     input /= maxv
     target /= maxv
     return (input, target)
@@ -570,7 +577,7 @@ if __name__ == "__main__":
         max_pc_fraction = 0.95,
         add_target_gp=True,
         target_gp_lengthscale=25.0,
-        target_gp_scale=100.0,
+        target_gp_scale=0.02,
         linear_onset_frac=0.5,
         msecs_per_sample=0.05,
         stim_start=5.0,
