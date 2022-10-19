@@ -41,7 +41,7 @@ class Subtractr(pl.LightningModule):
                             type=float, default=0.01)
         parser.add_argument('--photocurrent_scale_max',
                             type=float, default=1.1)
-        parser.add_argument('--pc_scale_min', type=float, default=0.1)
+        parser.add_argument('--pc_scale_min', type=float, default=0.05)
         parser.add_argument('--pc_scale_max', type=float, default=10.0)
         parser.add_argument('--gp_scale_min', type=float, default=0.01)
         parser.add_argument('--gp_scale_max', type=float, default=0.2)
@@ -60,8 +60,8 @@ class Subtractr(pl.LightningModule):
         parser.add_argument('--add_target_gp', action='store_true')
         parser.add_argument('--no_add_target_gp', dest='add_target_gp', action='store_false')
         parser.set_defaults(add_target_gp=True)
-        parser.add_argument('--target_gp_lengthscale', default=25)
-        parser.add_argument('--target_gp_scale', default=0.01)
+        parser.add_argument('--target_gp_lengthscale', type=float, default=25)
+        parser.add_argument('--target_gp_scale', type=float, default=0.05)
 
         # whether we use the linear onset in the training data
         parser.add_argument('--linear_onset_frac', type=float, default=0.5)
@@ -84,8 +84,8 @@ class Subtractr(pl.LightningModule):
         parser.add_argument('--model_type', type=str, default='MultiTraceConv')
 
         # convolutional args. 
-        parser.add_argument('--down_filter_sizes', nargs=4, type=int, default=(16, 32, 64, 128))
-        parser.add_argument('--up_filter_sizes', nargs=4, type=int, default=(64, 32, 16, 4))
+        parser.add_argument('--down_filter_sizes', nargs=4, type=int, default=(16, 32, 32, 32))
+        parser.add_argument('--up_filter_sizes', nargs=4, type=int, default=(32, 32, 16, 4))
 
         # SetTransformer args
         parser.add_argument('--dim_input', type=int, default=900)
@@ -109,6 +109,8 @@ class Subtractr(pl.LightningModule):
             self.backbone = backbones.MultiTraceConvAttention(**hparams)
         elif hparams['model_type'] == 'SingleTraceConv':
             self.backbone = backbones.SingleTraceConv(**hparams)
+        elif hparams['model_type'] == 'DeepLowRank':
+            self.backbone = backbones.DeepLowRank(**hparams)
         else:
             raise ValueError('Model type not recognized.')
 
@@ -142,13 +144,14 @@ class Subtractr(pl.LightningModule):
 
     def __call__(self, traces,
             monotone_filter=False, monotone_filter_start=500, verbose=True,
-            use_auto_batch_size=True, batch_size=-1, sort=True):
+            use_auto_batch_size=True, batch_size=-1, sort=True,
+            max_norm_start_idx=100, max_norm_end_idx=700):
         ''' Run demixer over PSC trace batch and apply monotone decay filter.
         '''
 
         # define forward call for a single batch
         def _forward(traces):
-            maxv = np.max(traces, axis=-1, keepdims=True)
+            maxv = (np.linalg.norm(traces) / traces.shape[0])
             dem = self.forward(
                 torch.tensor(
                     (traces/maxv)[None,:,:], dtype=torch.float32, device=self.device
@@ -168,7 +171,7 @@ class Subtractr(pl.LightningModule):
         # For multi-trace model, this will group traces of 
         # similar magnitudes to be in the same batch.
         if sort:
-            idxs = np.argsort(np.sum(traces, axis=-1))
+            idxs = np.argsort(np.linalg.norm(traces, axis=-1))
         else:
             idxs = np.arange(num_traces)
         
@@ -220,6 +223,7 @@ class Subtractr(pl.LightningModule):
         key = jrand.PRNGKey(0)
         keys = iter(jrand.split(key, num=2))
 
+        print(args.target_gp_scale)
         sampler_func = vmap(partial(sample_photocurrent_experiment,
             num_traces=args.num_traces_per_expt, 
             onset_jitter_ms=args.onset_jitter_ms,

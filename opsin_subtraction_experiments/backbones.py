@@ -148,8 +148,6 @@ class MultiTraceConv(nn.Module):
             feats = l(feats)
         dims = feats.shape
 
-
-
         # average over traces from the same experiment
         feats = torch.mean(feats, dim=2, keepdim=True)
 
@@ -180,6 +178,82 @@ class MultiTraceConv(nn.Module):
 
         return out
 
+
+class DeepLowRank(nn.Module):
+    def __init__(self, **hparams):
+        super().__init__()
+        down_filter_sizes = hparams.get('down_filter_sizes', (16, 16, 32, 32))
+        up_filter_sizes = hparams.get('up_filter_sizes', (16, 16, 16, 4))
+
+        # Initialize layers
+        self.weight_encoder = torch.nn.ModuleList([
+            MultiTraceDownsamplingBlock(1, down_filter_sizes[0], 32, 2),
+            MultiTraceDownsamplingBlock(
+                down_filter_sizes[0], down_filter_sizes[1], 32, 1),
+            MultiTraceDownsamplingBlock(
+                down_filter_sizes[1], down_filter_sizes[2], 16, 1),
+            MultiTraceDownsamplingBlock(
+                down_filter_sizes[2], down_filter_sizes[3], 16, 1)
+        ])
+
+        self.waveform_encoder = torch.nn.ModuleList([
+            MultiTraceDownsamplingBlock(1, down_filter_sizes[0], 32, 2),
+            MultiTraceDownsamplingBlock(
+                down_filter_sizes[0], down_filter_sizes[1], 32, 1),
+            MultiTraceDownsamplingBlock(
+                down_filter_sizes[1], down_filter_sizes[2], 16, 1),
+            MultiTraceDownsamplingBlock(
+                down_filter_sizes[2], down_filter_sizes[3], 16, 1)
+        ])
+
+        self.ublock1 = MultiTraceUpsamplingBlock(
+            down_filter_sizes[3], up_filter_sizes[0], 
+            16, 1, interpolation_mode='linear')
+        self.ublock2 = MultiTraceUpsamplingBlock(
+            down_filter_sizes[2] + up_filter_sizes[0], up_filter_sizes[1], 
+            16, 1, interpolation_mode='linear')
+        self.ublock3 = MultiTraceUpsamplingBlock(
+            down_filter_sizes[1] + up_filter_sizes[1], up_filter_sizes[2], 
+            32, 1, interpolation_mode='linear')
+        self.ublock4 = MultiTraceUpsamplingBlock(
+            down_filter_sizes[0] + up_filter_sizes[2], up_filter_sizes[3], 
+            32, 2, interpolation_mode='linear')
+
+        self.conv = MultiTraceConvolutionBlock(
+            up_filter_sizes[3], 1, 256, 255, 1, 2)
+
+    def forward(self, x):
+        # import pdb; pdb.set_trace()
+        x = x[:, None, :, :]  # nbatch x channel x ntrace x time
+
+        # Pass each waveform separately through encoder
+        waveform = torch.clone(x)
+        skip_inputs = []
+        context_sizes = np.zeros(len(self.waveform_encoder), dtype=int)
+        for l in self.waveform_encoder:
+            skip_inputs.append(waveform)
+            waveform = l(waveform)
+
+        # Pass each waveform separately through encoder
+        dec1 = self.ublock1(waveform, skip=skip_inputs[3])
+        dec2 = self.ublock2(dec1, skip=skip_inputs[2])
+        dec3 = self.ublock3(dec2, skip=skip_inputs[1])
+        dec4 = self.ublock4(dec3, interp_size=x.shape[-1])
+
+        # Sum output waveforms. Squeeze out channels dimension
+        waveform = self.conv(dec4)
+        waveform = torch.squeeze(torch.mean(waveform, dim=2), dim=1)
+
+        # Pass through separate encoder to learn the weights
+        weights = torch.clone(x)
+        for l in self.weight_encoder:
+            weights = l(weights)
+        weights = torch.mean(weights, dim=(1,3))
+        weights = weights[:, :, None] # Nbatch x ntraces x 1
+
+        waveform = waveform[:, None, :] # Nbatch x 1 x time
+
+        return torch.bmm(weights, waveform)
 
 class MultiTraceConvAttention(nn.Module):
     ''' Neural waveform demixing U-Net

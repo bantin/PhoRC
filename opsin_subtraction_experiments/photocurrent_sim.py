@@ -124,20 +124,25 @@ def _sample_photocurrent_params(key,
 
 def _sample_scales(key, min_pc_fraction, max_pc_fraction,
                    num_traces, min_pc_scale, max_pc_scale):
+
+    keys = iter(jrand.split(key, num=5))
+
     # sample scale values for photocurrents.
     # Randomly set some traces to have no photocurrent
     # according to pc_fraction.
-
-    pc_fraction = jrand.uniform(key, minval=min_pc_fraction,
+    pc_fraction = jrand.uniform(next(keys), minval=min_pc_fraction,
                                 maxval=max_pc_fraction)
-    key = jrand.fold_in(key, 0)
     pc_mask = jnp.where(
-        jrand.uniform(key, shape=(num_traces,)) <= pc_fraction,
+        jrand.uniform(next(keys), shape=(num_traces,)) <= pc_fraction,
         1.0,
         0.0)
-    key = jrand.fold_in(key, 0)
-    pc_scales = jrand.uniform(key, shape=(num_traces,),
-                              minval=min_pc_scale, maxval=max_pc_scale)
+
+    # draw scales centered on a random value
+    pc_scale_center = jrand.uniform(next(keys), minval=min_pc_scale, maxval=max_pc_scale)
+    pc_scales = jrand.normal(next(keys), shape=(num_traces,)) + pc_scale_center
+    pc_scales = jnp.clip(pc_scales, a_min=min_pc_scale, a_max=max_pc_scale)
+
+    pc_scales
     pc_scales *= pc_mask
     return pc_scales
 
@@ -346,7 +351,7 @@ def sample_photocurrent_shapes(
         add_target_gp=True,
         target_gp_lengthscale=50,
         target_gp_scale=0.01,
-        monotone_filter_start=500,
+        monotone_filter_start=300,
     ):
     keys = jrand.split(key, num=num_expts)
     if pc_shape_params is None:
@@ -409,9 +414,9 @@ def sample_photocurrent_shapes(
             gp_lengthscale=target_gp_lengthscale,
             gp_scale=target_gp_scale,
         )
-        target_gp = jax.nn.softplus(target_gp)
-        curr_pc_shapes.at[:, stim_start_idx+10:].add(target_gp[:, stim_start_idx+10:])
-        curr_pc_shapes.at[:, monotone_filter_start:].set(
+        target_gp = jnp.maximum(target_gp, 0.0)
+        curr_pc_shapes = curr_pc_shapes.at[:, stim_start_idx+10:].add(target_gp[:, stim_start_idx+10:])
+        curr_pc_shapes = curr_pc_shapes.at[:, monotone_filter_start:].set(
             monotone_decay_filter(curr_pc_shapes, monotone_start=monotone_filter_start))
 
     return prev_pc_shapes, curr_pc_shapes, next_pc_shapes
@@ -429,6 +434,8 @@ def sample_photocurrent_experiment(
     max_pc_scale = 10.0,
     min_pc_fraction = 0.1,
     max_pc_fraction = 0.95,
+    min_prev_pc_fraction = 0.0,
+    max_prev_pc_fraction = 0.001,
     add_target_gp=True,
     target_gp_lengthscale=25.0,
 	target_gp_scale=0.01,
@@ -438,8 +445,14 @@ def sample_photocurrent_experiment(
     tstart=-10.0,
     tend=45.0,
     time_zero_idx=200,
+    gp_lengthscale_min=20, 
+    gp_lengthscale_max=60,
+    gp_scale_min=0.01,
+    gp_scale_max=0.1,
+    iid_noise_std_min=0.01,
+    iid_noise_std_max=0.1,
     ):
-    keys = iter(jrand.split(key, num=10))
+    keys = iter(jrand.split(key, num=12))
 
     if pc_shape_params is None:
         pc_shape_params = dict(
@@ -465,11 +478,10 @@ def sample_photocurrent_experiment(
             delta_upper=400,
             next_delta_lower=400,
             next_delta_upper=899,
-            prev_delta_upper=150,
-            noise_std_lower=0.001,
-            noise_std_upper=0.02,
-            gp_lengthscale=45,
-            
+            prev_delta_upper=150,   
+            mode_probs=(0.8, 0.1, 0.05, 0.05),
+            prev_mode_probs=(0.8, 0.1, 0.05, 0.05),
+            next_mode_probs=(0.8, 0.1, 0.05, 0.05),
         )
 
     # Sample photocurrent waveform and scale randomly
@@ -491,7 +503,7 @@ def sample_photocurrent_experiment(
                 time_zero_idx=time_zero_idx,)
     max_pc_scale = jrand.uniform(next(keys), minval=min_pc_scale, maxval=max_pc_scale)
     prev_pcs = _sample_scales(
-        next(keys), min_pc_fraction, max_pc_fraction, num_traces, min_pc_scale, max_pc_scale
+        next(keys), min_prev_pc_fraction, max_prev_pc_fraction, num_traces, min_pc_scale, max_pc_scale
     )[:, None] * prev_pc_shape
 
     curr_pcs = _sample_scales(
@@ -499,7 +511,7 @@ def sample_photocurrent_experiment(
     )[:, None] * curr_pc_shape
 
     next_pcs = _sample_scales(
-        next(keys), min_pc_fraction, max_pc_fraction, num_traces, min_pc_scale, max_pc_scale
+        next(keys), min_prev_pc_fraction, max_prev_pc_fraction, num_traces, min_pc_scale, max_pc_scale
     )[:, None] * next_pc_shape
 
     # Sample batch of PSC background traces. Fold in keyword args
@@ -508,12 +520,20 @@ def sample_photocurrent_experiment(
     sample_pscs_batch = vmap(_sample_pscs_partial)
 
     psc_keys = jrand.split(next(keys), num=num_traces)
-    pscs_and_noise, _ = sample_pscs_batch(psc_keys)
+    pscs, _ = sample_pscs_batch(psc_keys)
 
-    input = pscs_and_noise + prev_pcs + curr_pcs + next_pcs
+    # sample noise. Each experiment has it's own noise scales
+    gp_scale = jrand.uniform(next(keys), minval=gp_scale_min, maxval=gp_scale_max)
+    gp_lengthscale = jrand.uniform(next(keys), minval=gp_lengthscale_min, maxval=gp_lengthscale_max)
+    gp_noise = jnp.squeeze(_sample_gp(next(keys), pscs, gp_lengthscale, gp_scale))
+    iid_noise_std = jrand.uniform(next(keys), minval=iid_noise_std_min, maxval=iid_noise_std_max)
+    iid_noise = jrand.normal(next(keys), shape=pscs.shape) * iid_noise_std
+
+    # combine all ingredients and normalize
+    input = pscs + prev_pcs + curr_pcs + next_pcs + iid_noise + gp_noise
     target = curr_pcs
 
-    maxv = jnp.max(input, axis=-1, keepdims=True)
+    maxv = (jnp.linalg.norm(input) / num_traces)
     input /= maxv
     target /= maxv
     return (input, target)
@@ -550,7 +570,7 @@ if __name__ == "__main__":
         max_pc_fraction = 0.95,
         add_target_gp=True,
         target_gp_lengthscale=25.0,
-        target_gp_scale=0.01,
+        target_gp_scale=100.0,
         linear_onset_frac=0.5,
         msecs_per_sample=0.05,
         stim_start=5.0,

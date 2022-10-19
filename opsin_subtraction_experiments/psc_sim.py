@@ -47,15 +47,22 @@ def _sample_pscs_single_trace(key, trial_dur=900, size=1000, training_fraction=0
                               delta_lower=160, delta_upper=400, next_delta_lower=400, next_delta_upper=899,
                               prev_delta_lower=-400, prev_delta_upper=-100,
                               mode_probs=None, prev_mode_probs=None, next_mode_probs=None,
-                              noise_std_lower=0.01, noise_std_upper=0.1, gp_lengthscale=25, gp_scale=0.01,
+                              noise_std=0.01, gp_lengthscale=25, gp_scale=0.01,
                               max_modes=4):
 
     if mode_probs is None:
         mode_probs = jnp.array([0.4, 0.4, 0.1, 0.1])
+    else:
+        mode_probs = jnp.array(mode_probs)
     if prev_mode_probs is None:
         prev_mode_probs = jnp.array([0.5, 0.4, 0.05, 0.05])
+    else:
+        prev_mode_probs = jnp.array(prev_mode_probs)
     if next_mode_probs is None:
         next_mode_probs = jnp.array([0.5, 0.4, 0.05, 0.05])
+    else:
+        next_mode_probs = jnp.array(next_mode_probs)
+    
 
     keys = iter(jrand.split(key, num=10))
     n_modes = jrand.choice(next(keys), max_modes, shape=(1,), p=mode_probs)
@@ -63,8 +70,6 @@ def _sample_pscs_single_trace(key, trial_dur=900, size=1000, training_fraction=0
         next(keys), max_modes, shape=(1,), p=prev_mode_probs)
     n_modes_next = jrand.choice(
         next(keys), max_modes, shape=(1,), p=next_mode_probs)
-    noise_std = jrand.uniform(
-        next(keys), minval=noise_std_lower, maxval=noise_std_upper, shape=(1,))
 
     max_samples = len(prev_mode_probs)
     target = jnp.sum(_sample_psc_kernel(next(keys), trial_dur=trial_dur, tau_r_lower=tau_r_lower,
