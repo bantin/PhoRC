@@ -384,6 +384,7 @@ if __name__ == "__main__":
                                 pin_memory=True,
                                 batch_size=effective_batch_size,
                                 sampler=None,
+                                shuffle=True,
                                 num_workers=args.num_workers)
 
     test_dataloader = DataLoader(test_dset,
