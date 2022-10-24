@@ -349,6 +349,9 @@ class SingleTraceConv(nn.Module):
 
     def forward(self, x):
         # Encoding
+        nbatch, ntraces, ntimesteps = x.shape
+        x = torch.reshape(x, (nbatch * ntraces, 1, ntimesteps))
+
         enc1 = self.dblock1(x)
         enc2 = self.dblock2(enc1)
         enc3 = self.dblock3(enc2)
@@ -362,6 +365,7 @@ class SingleTraceConv(nn.Module):
 
         # Final conv layer
         out = self.conv(dec4)
+        out = torch.reshape(out, (nbatch, ntraces, ntimesteps))
 
         return out
 
