@@ -87,8 +87,8 @@ class Subtractr(pl.LightningModule):
         parser.add_argument('--model_type', type=str, default='MultiTraceConv')
 
         # convolutional args. 
-        parser.add_argument('--down_filter_sizes', nargs=4, type=int, default=(16, 32, 32, 32))
-        parser.add_argument('--up_filter_sizes', nargs=4, type=int, default=(32, 32, 16, 4))
+        parser.add_argument('--down_filter_sizes', nargs=4, type=int, default=(16, 32, 64, 128))
+        parser.add_argument('--up_filter_sizes', nargs=4, type=int, default=(128, 64, 16, 4))
 
         # SetTransformer args
         parser.add_argument('--dim_input', type=int, default=900)
