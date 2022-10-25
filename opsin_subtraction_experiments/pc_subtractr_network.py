@@ -7,7 +7,8 @@ import pytorch_lightning as pl
 import time
 import sys
 import os
-
+import shutil
+import atexit
 import argparse
 import photocurrent_sim
 import jax
@@ -64,7 +65,7 @@ class Subtractr(pl.LightningModule):
         parser.add_argument('--no_add_target_gp', dest='add_target_gp', action='store_false')
         parser.set_defaults(add_target_gp=True)
         parser.add_argument('--target_gp_lengthscale', type=float, default=25)
-        parser.add_argument('--target_gp_scale', type=float, default=0.05)
+        parser.add_argument('--target_gp_scale', type=float, default=0.01)
 
         # whether we use the linear onset in the training data
         parser.add_argument('--linear_onset_frac', type=float, default=0.5)
@@ -260,25 +261,33 @@ class Subtractr(pl.LightningModule):
 
         if args.data_on_disk:
 
-            # make train/test folders
-            os.makedirs(os.path.join(args.data_save_path, 'train'), exist_ok=True)
-            os.makedirs(os.path.join(args.data_save_path, 'test'), exist_ok=True)
+            # for SLURM jobs, make sure that two jobs running on 
+            # the same node will not save train data to the same place
+            folder_suffix = ''
+            slurmid = os.getenv('SLURM_JOB_ID')
+            if slurmid is not None:
+                folder_suffix = slurmid
 
-            for (keyset, label) in zip([train_keys, test_keys], ['train', 'test']):
+            # make train/test folders
+            self.train_path = os.path.join(args.data_save_path, 'train' + folder_suffix + '/')
+            self.test_path = os.path.join(args.data_save_path, 'test' + folder_suffix + '/')
+            os.makedirs(self.train_path, exist_ok=True)
+            os.makedirs(self.test_path, exist_ok=True)
+
+            for (keyset, path, label) in zip(
+                    [train_keys, test_keys],
+                    [self.train_path, self.test_path],
+                    ['train', 'test']):
                 keyset_batched = jnp.split(keyset, jnp.arange(0, keyset.shape[0], args.sim_batch_size)[1:])
                 for batch_idx,  these_keys in enumerate(keyset_batched):
 
-
                     expts = sampler_func(these_keys)
-                    curr_path = os.path.join(args.data_save_path, label)
-                    curr_path = os.path.join(curr_path, '%s_batch%d' % (label, batch_idx))
+                    curr_path = os.path.join(path, '%s_batch%d' % (label, batch_idx))
                     np.save(curr_path, expts)
 
         else:
             self.train_expts = sampler_func(train_keys)
             self.test_expts = sampler_func(test_keys)
-
-
 
 class MemDataset(torch.utils.data.Dataset):
     ''' Torch training dataset
@@ -367,8 +376,8 @@ if __name__ == "__main__":
 
 
     if args.data_on_disk:
-        train_dset = DiskDataset(os.path.join(args.data_save_path, 'train/'))
-        test_dset = DiskDataset(os.path.join(args.data_save_path, 'test/'))
+        train_dset = DiskDataset(subtractr.train_path)
+        test_dset = DiskDataset(subtractr.test_path)
         effective_batch_size = None
 
         # free any gpu mem used by jax
