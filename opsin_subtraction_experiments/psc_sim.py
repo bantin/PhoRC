@@ -47,7 +47,6 @@ def _sample_pscs_single_trace(key, trial_dur=900, size=1000, training_fraction=0
                               delta_lower=160, delta_upper=400, next_delta_lower=400, next_delta_upper=899,
                               prev_delta_lower=-400, prev_delta_upper=-100,
                               mode_probs=None, prev_mode_probs=None, next_mode_probs=None,
-                              noise_std=0.01, gp_lengthscale=25, gp_scale=0.01,
                               max_modes=4):
 
     if mode_probs is None:
@@ -85,9 +84,8 @@ def _sample_pscs_single_trace(key, trial_dur=900, size=1000, training_fraction=0
                                           tau_r_upper=tau_r_upper, tau_diff_lower=tau_diff_lower, tau_diff_upper=tau_diff_upper,
                                           delta_lower=next_delta_lower, delta_upper=next_delta_upper, n_samples_active=n_modes_next), axis=0)
 
-    gp_noise = jnp.squeeze(photocurrent_sim._sample_gp(next(keys), target[None,:], gp_lengthscale, gp_scale))
-    iid_noise = jrand.normal(next(keys), shape=(trial_dur,)) * noise_std
-    inputs = prev_psc + target + next_psc + iid_noise + gp_noise
+    
+    inputs = prev_psc + target + next_psc
 
     return inputs, target
 

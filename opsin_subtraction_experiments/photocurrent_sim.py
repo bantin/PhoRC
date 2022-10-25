@@ -138,11 +138,11 @@ def _sample_scales(key, min_pc_fraction, max_pc_fraction,
         0.0)
 
     # draw scales centered on a random value
-    pc_scale_center = jrand.uniform(next(keys), minval=min_pc_scale, maxval=max_pc_scale)
-    pc_scales = jrand.normal(next(keys), shape=(num_traces,)) + pc_scale_center
-    pc_scales = jnp.clip(pc_scales, a_min=min_pc_scale, a_max=max_pc_scale)
+    # pc_scale_center = jrand.uniform(next(keys), minval=min_pc_scale, maxval=max_pc_scale)
+    # pc_scales = jrand.normal(next(keys), shape=(num_traces,)) + pc_scale_center
+    # pc_scales = jnp.clip(pc_scales, a_min=min_pc_scale, a_max=max_pc_scale)
+    pc_scales = jrand.uniform(next(keys), minval=min_pc_scale, maxval=max_pc_scale)
 
-    pc_scales
     pc_scales *= pc_mask
     return pc_scales
 
@@ -434,8 +434,8 @@ def sample_photocurrent_experiment(
     max_pc_scale = 10.0,
     min_pc_fraction = 0.1,
     max_pc_fraction = 0.95,
-    min_prev_pc_fraction = 0.0,
-    max_prev_pc_fraction = 0.001,
+    min_prev_pc_fraction = 0.1,
+    max_prev_pc_fraction = 0.3,
     add_target_gp=True,
     target_gp_lengthscale=25.0,
 	target_gp_scale=0.01,
@@ -448,10 +448,10 @@ def sample_photocurrent_experiment(
     gp_lengthscale_min=20, 
     gp_lengthscale_max=60,
     gp_scale_min=0.01,
-    gp_scale_max=0.1,
-    iid_noise_std_min=0.01,
-    iid_noise_std_max=0.1,
-    normalize_type='l2',
+    gp_scale_max=0.05,
+    iid_noise_std_min=0.001,
+    iid_noise_std_max=0.02,
+    normalize_type='max',
     ):
     keys = iter(jrand.split(key, num=12))
 
@@ -474,15 +474,14 @@ def sample_photocurrent_experiment(
             tau_diff_lower = 60,
             tau_diff_upper = 120,
             trial_dur=900,
-            gp_scale=0.045,
             delta_lower=160,
             delta_upper=400,
             next_delta_lower=400,
             next_delta_upper=899,
             prev_delta_upper=150,   
-            mode_probs=(0.8, 0.1, 0.05, 0.05),
-            prev_mode_probs=(0.8, 0.1, 0.05, 0.05),
-            next_mode_probs=(0.8, 0.1, 0.05, 0.05),
+            # mode_probs=(0.8, 0.1, 0.05, 0.05),
+            # prev_mode_probs=(0.8, 0.1, 0.05, 0.05),
+            # next_mode_probs=(0.8, 0.1, 0.05, 0.05),
         )
 
     # Sample photocurrent waveform and scale randomly
@@ -531,18 +530,22 @@ def sample_photocurrent_experiment(
     iid_noise = jrand.normal(next(keys), shape=pscs.shape) * iid_noise_std
 
     # combine all ingredients and normalize
-    input = pscs + prev_pcs + curr_pcs + next_pcs + iid_noise + gp_noise
+    input = pscs + prev_pcs + curr_pcs + next_pcs
     target = curr_pcs
 
     if normalize_type == 'l2':
-        maxv = (jnp.linalg.norm(input) / num_traces)
+        maxv = (jnp.linalg.norm(input) + 1e-5 / num_traces)
     elif normalize_type == 'max':
-        maxv = (jnp.max(input, axis=-1, keepdims=True))
+        maxv = jnp.max(input, axis=-1, keepdims=True) + 1e-5
     else:
         raise ValueError('unknown value for normalize_type')
 
     input /= maxv
     target /= maxv
+
+    # add GP and IID noise after normalizing
+    input = input + iid_noise + gp_noise
+
     return (input, target)
 
 

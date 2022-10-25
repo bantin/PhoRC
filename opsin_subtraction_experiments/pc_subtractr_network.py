@@ -44,9 +44,9 @@ class Subtractr(pl.LightningModule):
         parser.add_argument('--pc_scale_min', type=float, default=0.05)
         parser.add_argument('--pc_scale_max', type=float, default=10.0)
         parser.add_argument('--gp_scale_min', type=float, default=0.01)
-        parser.add_argument('--gp_scale_max', type=float, default=0.2)
-        parser.add_argument('--iid_noise_scale_min', type=float, default=0.01)
-        parser.add_argument('--iid_noise_scale_max', type=float, default=0.1)
+        parser.add_argument('--gp_scale_max', type=float, default=0.045)
+        parser.add_argument('--iid_noise_std_min', type=float, default=0.001)
+        parser.add_argument('--iid_noise_std_max', type=float, default=0.02)
         parser.add_argument('--min_pc_fraction', type=float, default=0.5)
         parser.add_argument('--max_pc_fraction', type=float, default=1.0)
         parser.add_argument('--gp_lengthscale', type=float, default=50.0)
@@ -251,7 +251,9 @@ class Subtractr(pl.LightningModule):
             tstart=-10.0,
             tend=47.0,
             time_zero_idx=200,
-            normalize_type=args.normalize_type))
+            normalize_type=args.normalize_type,
+            iid_noise_std_min=args.iid_noise_std_min,
+            iid_noise_std_max=args.iid_noise_std_max))
 
         train_keys = jrand.split(next(keys), args.num_train)
         test_keys = jrand.split(next(keys), args.num_test)
