@@ -549,14 +549,13 @@ def sample_photocurrent_experiment(
     return (input, target)
 
 
-def postprocess_photocurrent_experiment(exp, lp_cutoff=500, msecs_per_sample=0.05, scale=True):
-    if scale:
-        maxv = np.max(exp, axis=-1, keepdims=True)
-        exp /= (maxv + 1e-3)
-
+def postprocess_photocurrent_experiment_batch(inputs, lp_cutoff=500, msecs_per_sample=0.05):
+    nbatch, ntrace, ntimesteps = inputs.shape
+    inputs = inputs.reshape(-1, ntimesteps)
     sos = sg.butter(4, lp_cutoff, btype='low', fs=int(1/msecs_per_sample*1000), output='sos')
-    exp = sg.sosfiltfilt(sos, exp, axis=-1)
-    return exp
+    out = sg.sosfiltfilt(sos, inputs, axis=-1)
+    out = out.reshape(nbatch, ntrace, ntimesteps) 
+    return out
 
 
 if __name__ == "__main__":

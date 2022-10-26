@@ -21,7 +21,7 @@ from functools import partial
 from torch.utils.data import Dataset, DataLoader
 from argparse import ArgumentParser
 from jax import vmap
-from photocurrent_sim import sample_photocurrent_experiment, postprocess_photocurrent_experiment
+from photocurrent_sim import sample_photocurrent_experiment, postprocess_photocurrent_experiment_batch
 
 # jax.config.update('jax_platform_name', 'cpu')
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = 'false'
@@ -42,7 +42,7 @@ class Subtractr(pl.LightningModule):
                             type=float, default=0.01)
         parser.add_argument('--photocurrent_scale_max',
                             type=float, default=1.1)
-        parser.add_argument('--pc_scale_min', type=float, default=0.05)
+        parser.add_argument('--pc_scale_min', type=float, default=0.1)
         parser.add_argument('--pc_scale_max', type=float, default=10.0)
         parser.add_argument('--gp_scale_min', type=float, default=0.01)
         parser.add_argument('--gp_scale_max', type=float, default=0.045)
@@ -50,7 +50,7 @@ class Subtractr(pl.LightningModule):
         parser.add_argument('--iid_noise_std_max', type=float, default=0.02)
         parser.add_argument('--min_pc_fraction', type=float, default=0.5)
         parser.add_argument('--max_pc_fraction', type=float, default=1.0)
-        parser.add_argument('--gp_lengthscale', type=float, default=50.0)
+        parser.add_argument('--gp_lengthscale', type=float, default=45.0)
 
         # whether we use the LS solver at the end of forward pass
         parser.add_argument('--use_ls_solve', action='store_true')
@@ -89,7 +89,7 @@ class Subtractr(pl.LightningModule):
 
         # convolutional args. 
         parser.add_argument('--down_filter_sizes', nargs=4, type=int, default=(16, 32, 64, 128))
-        parser.add_argument('--up_filter_sizes', nargs=4, type=int, default=(128, 64, 16, 4))
+        parser.add_argument('--up_filter_sizes', nargs=4, type=int, default=(64, 32, 16, 4))
 
         # SetTransformer args
         parser.add_argument('--dim_input', type=int, default=900)
@@ -256,6 +256,13 @@ class Subtractr(pl.LightningModule):
             iid_noise_std_min=args.iid_noise_std_min,
             iid_noise_std_max=args.iid_noise_std_max))
 
+        # Since low-pass filters are not yet implemented in jax, we
+        # do this as a postprocessing step
+        def sample_and_postprocess(keys):
+            obs, targets = sampler_func(keys)
+            obs = postprocess_photocurrent_experiment_batch(obs)
+            return (obs, targets)
+
         train_keys = jrand.split(next(keys), args.num_train)
         test_keys = jrand.split(next(keys), args.num_test)
 
@@ -280,14 +287,13 @@ class Subtractr(pl.LightningModule):
                     ['train', 'test']):
                 keyset_batched = jnp.split(keyset, jnp.arange(0, keyset.shape[0], args.sim_batch_size)[1:])
                 for batch_idx,  these_keys in enumerate(keyset_batched):
-
-                    expts = sampler_func(these_keys)
+                    expts = sample_and_postprocess(these_keys) 
                     curr_path = os.path.join(path, '%s_batch%d' % (label, batch_idx))
                     np.save(curr_path, expts)
 
         else:
-            self.train_expts = sampler_func(train_keys)
-            self.test_expts = sampler_func(test_keys)
+            self.train_expts = sample_and_postprocess(train_keys)
+            self.test_expts = sample_and_postprocess(test_keys)
 
 class MemDataset(torch.utils.data.Dataset):
     ''' Torch training dataset
@@ -407,3 +413,8 @@ if __name__ == "__main__":
     # Run torch update loops
     trainer = pl.Trainer.from_argparse_args(args)
     trainer.fit(subtractr, train_dataloader, test_dataloader)
+
+    # cleanup
+    if args.data_on_disk:
+        shutil.rmtree(subtractr.train_path)
+        shutil.rmtree(subtractr.test_path)
