@@ -84,7 +84,7 @@ def _photocurrent_shape(
         
     # convolve with gaussian to smooth
     x = jnp.linspace(-3, 3, conv_window_len)
-    window = jsp.stats.norm.pdf(x, scale=12)
+    window = jsp.stats.norm.pdf(x, scale=25)
     i_photo = jsp.signal.convolve(i_photo, window, mode='same')
     i_photo /= (jnp.max(i_photo) + 1e-3)
 

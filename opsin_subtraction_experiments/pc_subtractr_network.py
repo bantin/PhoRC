@@ -152,7 +152,7 @@ class Subtractr(pl.LightningModule):
             max_norm_start_idx=100, max_norm_end_idx=700):
         ''' Run demixer over PSC trace batch and apply monotone decay filter.
         '''
-
+        self.eval()
         # define forward call for a single batch
         def _forward(traces):
             normalize_type = self.hparams.get('normalize_type', 'l2')
