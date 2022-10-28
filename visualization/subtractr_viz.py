@@ -20,32 +20,10 @@ import matplotlib.pyplot as plt
 import matplotlib.animation
 import os
 
-# def generate_plts(traces):
-
-#     outfig3 = go.Figure()
-#     timesteps = traces.shape[-1]
-#     for trace in traces:
-#         outfig3.add_trace(go.Scatter(
-#             x=np.arange(0,timesteps),
-#             y=trace,
-#             name="Trace"),
-#         )
-#     print(traces.shape)
-#     outfig3.update_layout(
-#         autosize=False,
-#          width=1400,
-#         height=300,
-#         margin=dict(l=50, r=0,  t=50, b=0),title_x=0.5)
-
-#     outfig3.update_layout(title_text='Pixel trace')
-#     outfig3.update_xaxes(title_text='Frame')
-#     outfig3.update_yaxes(title_text="Intensity")
-#     # outfig3.update_yaxes(title_text="Denoised", secondary_y=True)
-#     return outfig3
 
 # load results dictionary
 # use placeholder path for now
-path = "../scripts/220704_B6_Chrome2fGC8_IC_070422_Cell1_Singlespot_Control_A_cmFormat_subtractr_caviar_results.npz"
+path = "../opsin_subtraction_experiments/220308_B6_Chrome2fGC8_030822_Cell2_opsPositive_A_planes_cunning-brattain-results.npz"
 results = np.load(path)
 
 # reshape map_img to create a single 4D array for all maps.

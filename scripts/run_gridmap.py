@@ -74,6 +74,7 @@ if __name__ == "__main__":
     if not no_op:
         print('Running opsin subtraction pipeline...')
         subtractr_net = NeuralDemixer(path=args.subtractr_checkpoint,
+            device='cpu',
             unet_args=dict(
                 down_filter_sizes=(16, 32, 64, 128),
                 up_filter_sizes=(64, 32, 16, 4),

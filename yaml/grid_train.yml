@@ -1,0 +1,19 @@
+compute:
+
+  train:
+    instance: g4dn.4xlarge
+
+    # Actions need to be passed as one command
+    # per line.
+    actions:
+      on_build_start:
+        - pip install --upgrade pip
+        - pip install git+https://github.com/bantin/mbcs_grids@master
+        - pip install jax[cpu]==0.3.10
+        # - pip install "jax[cuda11_cudnn805]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+        - pip install h5py
+        - pip install pytorch-lightning
+        - pip install numpy
+        - pip install scipy
+        
+  
