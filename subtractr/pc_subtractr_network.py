@@ -10,18 +10,19 @@ import os
 import shutil
 import atexit
 import argparse
-import photocurrent_sim
 import jax
 import jax.numpy as jnp
 import jax.random as jrand
-import backbones
 import glob
+
+import subtractr.photocurrent_sim as photocurrent_sim
+import subtractr.backbones as backbones
 
 from functools import partial
 from torch.utils.data import Dataset, DataLoader
 from argparse import ArgumentParser
 from jax import vmap
-from photocurrent_sim import sample_photocurrent_experiment, postprocess_photocurrent_experiment_batch
+from subtractr.photocurrent_sim import sample_photocurrent_experiment, postprocess_photocurrent_experiment_batch
 
 # jax.config.update('jax_platform_name', 'cpu')
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = 'false'

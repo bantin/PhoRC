@@ -3,7 +3,7 @@ import jax
 import jax.numpy as jnp
 import jax.random as jrand
 import jax.scipy as jsp
-import psc_sim
+import subtractr.psc_sim as psc_sim
 import scipy.signal as sg
 
 from jax import vmap, jit

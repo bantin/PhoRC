@@ -1,6 +1,6 @@
 import jax.numpy as jnp
 import jax.random as jrand
-import photocurrent_sim
+import subtractr.photocurrent_sim as photocurrent_sim
 
 from jax import vmap, jit
 from functools import partial
