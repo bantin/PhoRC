@@ -13,6 +13,7 @@ setup(
 		'scikit-learn',
 		'torch',
 		'pytorch-lightning',
-        'jax[cpu]'
+        'jax[cpu]',
+        'h5py',
 	],
 )

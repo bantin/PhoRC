@@ -1,4 +1,3 @@
-from email.policy import default
 import numpy as np
 import matplotlib as mpl
 

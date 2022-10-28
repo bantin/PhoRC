@@ -1,9 +1,9 @@
 import numpy as np
 import matplotlib.pyplot as plt
-import grid_utils as util
+import subtractr.utils.grid_utils as util
 
 from circuitmap import NeuralDemixer
-import subtractr
+import subtractr.low_rank as low_rank
 
 
 def traces_tensor_to_map(tensor):
@@ -151,7 +151,7 @@ def run_subtraction_pipeline(pscs, powers, targets, stim, demixer_checkpoint, no
     if no_op:
         est = np.zeros_like(pscs)
     else:
-        est = subtractr.estimate_photocurrents_baseline(pscs, powers, **run_kwargs)
+        est = low_rank.estimate_photocurrents_baseline(pscs, powers, **run_kwargs)
     subtracted = pscs - est
 
     # load demixer checkpoint and demix
@@ -255,7 +255,7 @@ def run_subtraction_pipeline_multipulse(
     if no_op:
         est = np.zeros_like(pscs)
     else:
-        est = subtractr.estimate_photocurrents_baseline(pscs, powers, **run_kwargs)
+        est = low_rank.estimate_photocurrents_baseline(pscs, powers, **run_kwargs)
     subtracted = pscs - est
 
     # load demixer checkpoint and demix
@@ -301,7 +301,7 @@ def make_subtraction_figs_singlespot(pscs, I, L, dataset_name, demixer_checkpoin
 
 
     # Run subtraction on all PSCs
-    est = subtractr.estimate_photocurrents(pscs, I, separate_by_power=True)
+    est = low_rank.estimate_photocurrents(pscs, I, separate_by_power=True)
     subtracted = pscs - est
 
     # load demixer checkpoint and demix
