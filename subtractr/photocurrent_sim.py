@@ -10,6 +10,7 @@ from jax import vmap, jit
 from scipy.optimize import curve_fit
 from scipy.ndimage import gaussian_filter1d
 from functools import partial
+import matplotlib.pyplot as plt
 
 
 def monotone_decay_filter(arr, monotone_start=500):
@@ -585,7 +586,9 @@ if __name__ == "__main__":
         stim_start=5.0,
         tstart=-10.0,
         tend=47.0,
-        time_zero_idx=200,))
+        time_zero_idx=200,
+        iid_noise_std_min=0.001,
+        iid_noise_std_max=0.02))
     inputs, targets = sampler_func(keys)
 
     num_plots = 10
@@ -595,5 +598,4 @@ if __name__ == "__main__":
         axs[i,0].plot(inputs[i].T)
         axs[i,1].plot(targets[i].T)
 
-    print(inputs[0].shape)
     plt.show()

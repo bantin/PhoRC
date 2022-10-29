@@ -14,6 +14,7 @@ import jax
 import jax.numpy as jnp
 import jax.random as jrand
 import glob
+from pytorch_lightning.callbacks import ModelCheckpoint
 
 import subtractr.photocurrent_sim as photocurrent_sim
 import subtractr.backbones as backbones
@@ -233,7 +234,6 @@ class Subtractr(pl.LightningModule):
         key = jrand.PRNGKey(0)
         keys = iter(jrand.split(key, num=2))
 
-        print(args.target_gp_scale)
         sampler_func = vmap(partial(sample_photocurrent_experiment,
             num_traces=args.num_traces_per_expt, 
             onset_jitter_ms=args.onset_jitter_ms,
@@ -261,7 +261,7 @@ class Subtractr(pl.LightningModule):
         # do this as a postprocessing step
         def sample_and_postprocess(keys):
             obs, targets = sampler_func(keys)
-            obs = postprocess_photocurrent_experiment_batch(obs)
+            # obs = postprocess_photocurrent_experiment_batch(obs)
             return (obs, targets)
 
         train_keys = jrand.split(next(keys), args.num_train)
@@ -350,6 +350,11 @@ def parse_args(argseq):
     parser.set_defaults(data_on_disk=False)
     parser.add_argument('--sim_batch_size', type=int, default=10)
 
+    # whether we erase training/test data when training completes.
+    parser.add_argument('--cleanup', action='store_true')
+    parser.add_argument('--no_cleanup', dest='cleanup', action='store_false')
+    parser.set_defaults(cleanup=True)
+
     # parser.add_argument("--psc_generation_kwargs", dest="psc_generation_kwargs", action=StoreDictKeyPair,
     #                     default=dict(gp_scale=0.045, delta_lower=160,
     #                                  delta_upper=400, next_delta_lower=400, next_delta_upper=899,
@@ -411,11 +416,17 @@ if __name__ == "__main__":
                                 sampler=None,
                                 num_workers=args.num_workers)
 
+    # configure checkpoint callbacks
+    val_checkpoint_callback = ModelCheckpoint(save_top_k=1,
+        monitor="val_loss", filename='{epoch}-{val_loss}_best_val')
+    periodic_checkpoint_callback = ModelCheckpoint(
+        every_n_epochs=10, monitor=None, save_top_k=-1)
+
     # Run torch update loops
-    trainer = pl.Trainer.from_argparse_args(args)
+    trainer = pl.Trainer.from_argparse_args(args, callbacks=[val_checkpoint_callback, periodic_checkpoint_callback])
     trainer.fit(subtractr, train_dataloader, test_dataloader)
 
     # cleanup
-    if args.data_on_disk:
+    if args.data_on_disk and args.cleanup:
         shutil.rmtree(subtractr.train_path)
         shutil.rmtree(subtractr.test_path)
