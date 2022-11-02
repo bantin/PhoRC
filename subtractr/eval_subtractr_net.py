@@ -9,9 +9,7 @@ import matplotlib.pyplot as plt
 import matplotlib.backends.backend_pdf
 import os
 
-sys.path.append('../')
-import subtractr.grid_utils as util
-import subtractr.subtract_utils as subtract_utils
+import subtractr.utils as utils
 
 
 if __name__ == "__main__":
@@ -70,7 +68,7 @@ if __name__ == "__main__":
             else:
                 npulses = 1
 
-        stim_mat_list, pscs_list, powers_list = util.separate_by_pulses(stim_mat, pscs, npulses=npulses)
+        stim_mat_list, pscs_list, powers_list = utils.separate_by_pulses(stim_mat, pscs, npulses=npulses)
         stim_mat = stim_mat_list[-1]
         pscs = pscs_list[-1]
         powers = powers_list[-1]
@@ -81,7 +79,7 @@ if __name__ == "__main__":
         stim_mat = stim_mat[:,good_idxs]
         powers = powers[good_idxs]
 
-        results = subtract_utils.run_network_subtraction_pipeline(
+        results = utils.run_network_subtraction_pipeline(
             pscs, powers, targets, stim_mat,
             args.demixer_checkpoint, net,
             run_raw_demix=args.show_raw_demixed,
@@ -98,16 +96,16 @@ if __name__ == "__main__":
     # instead of using the maps from the results dict
 
     if np.sum(stim_mat[:,0] > 0) > 1: # check if multispot data
-        raw_lasso_resp = util.circuitmap_lasso_cv(stim_mat, results['raw_matrix'])[0]
-        subtracted_lasso_resp = util.circuitmap_lasso_cv(stim_mat, results['subtracted_matrix'])[0]
-        demixed_lasso_resp = util.circuitmap_lasso_cv(stim_mat, results['demixed_matrix'])[0]
+        raw_lasso_resp = utils.circuitmap_lasso_cv(stim_mat, results['raw_matrix'])[0]
+        subtracted_lasso_resp = utils.circuitmap_lasso_cv(stim_mat, results['subtracted_matrix'])[0]
+        demixed_lasso_resp = utils.circuitmap_lasso_cv(stim_mat, results['demixed_matrix'])[0]
 
         grid_dims = results['raw_map'].shape[1:]
-        results['raw_map'] = util.reshape_lasso_response(
+        results['raw_map'] = utils.reshape_lasso_response(
             raw_lasso_resp, results['targets'], grid_dims)
-        results['subtracted_map'] = util.reshape_lasso_response(
+        results['subtracted_map'] = utils.reshape_lasso_response(
             subtracted_lasso_resp, results['targets'], grid_dims)
-        results['demixed_map'] = util.reshape_lasso_response(
+        results['demixed_map'] = utils.reshape_lasso_response(
             demixed_lasso_resp, results['targets'], grid_dims)
     
     # make map figure
@@ -121,7 +119,7 @@ if __name__ == "__main__":
         # caviar_map = results['model_state']['mu'].reshape(1, *results['raw_map'].shape[1:])
         grid_dims = results['raw_map'].shape[1:]
         caviar_weights = results['model_state']['mu']
-        caviar_map = util.reshape_lasso_response(
+        caviar_map = utils.reshape_lasso_response(
             caviar_weights[None, :], results['targets'], grid_dims,
         )
         maps_to_plot.append(caviar_map)
@@ -129,7 +127,7 @@ if __name__ == "__main__":
 
     num_planes = results['raw_map'].shape[-1]
     fig1 = plt.figure(figsize=(4 * 3, num_planes), dpi=300, facecolor='white')
-    util.plot_multi_means(fig1,
+    utils.plot_multi_means(fig1,
         maps_to_plot, 
         np.arange(num_planes),
         map_names=map_names,
@@ -144,7 +142,7 @@ if __name__ == "__main__":
     plt.tight_layout()
 
     # make traces figure
-    fig2 = subtract_utils.plot_subtraction_by_power(
+    fig2 = utils.plot_subtraction_by_power(
         results['raw_matrix'],
         results['est_matrix'],
         results['subtracted_matrix'],
