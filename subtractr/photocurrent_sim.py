@@ -458,9 +458,9 @@ def sample_jittered_photocurrent_shapes(
 
     return prev_pc_shapes, curr_pc_shapes, next_pc_shapes
 
-# @partial(jit, static_argnames=(
-#     'add_target_gp', 'msecs_per_sample', 'num_traces',
-#     'stim_start', 'tstart', 'tend', 'time_zero_idx', 'normalize_type'))
+@partial(jit, static_argnames=(
+    'add_target_gp', 'msecs_per_sample', 'num_traces',
+    'stim_start', 'tstart', 'tend', 'time_zero_idx', 'normalize_type'))
 def sample_photocurrent_experiment(
     key, num_traces=32, 
     onset_jitter_ms=1.0,
