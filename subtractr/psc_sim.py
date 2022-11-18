@@ -13,7 +13,7 @@ psc_kernel_batched = vmap(_psc_kernel, in_axes=(0, 0, 0, None))
 @partial(jit, static_argnames=('trial_dur', 'max_samples'))
 def _sample_psc_kernel(key, trial_dur=900, tau_r_lower=10, tau_r_upper=80, tau_diff_lower=50,
                        tau_diff_upper=150, delta_lower=100, delta_upper=200, max_samples=4,
-                       n_samples_active=1, amplitude_lower=0.1, amplitude_upper=1.5, sigma=20):
+                       n_samples_active=1, amplitude_lower=0.1, amplitude_upper=1.5):
     """Sample PSCs with random time constants, onset times, and amplitudes."""
     keys = iter(jrand.split(key, num=4))
     tau_r_samples = jrand.uniform(
