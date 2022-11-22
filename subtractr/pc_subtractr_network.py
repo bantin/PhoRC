@@ -182,7 +182,7 @@ class Subtractr(pl.LightningModule):
         # For multi-trace model, this will group traces of 
         # similar magnitudes to be in the same batch.
         if sort:
-            idxs = np.argsort(np.linalg.norm(traces, axis=-1))
+            idxs = np.argsort(np.linalg.norm(traces[:, 100:250], axis=-1))
         else:
             idxs = np.arange(num_traces)
         

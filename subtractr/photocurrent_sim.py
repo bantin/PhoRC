@@ -177,7 +177,8 @@ def _sample_scales(key, min_pc_fraction, max_pc_fraction,
     # pc_scale_center = jrand.uniform(next(keys), minval=min_pc_scale, maxval=max_pc_scale)
     # pc_scales = jrand.normal(next(keys), shape=(num_traces,)) + pc_scale_center
     # pc_scales = jnp.clip(pc_scales, a_min=min_pc_scale, a_max=max_pc_scale)
-    pc_scales = jrand.uniform(next(keys), minval=min_pc_scale, maxval=max_pc_scale)
+    pc_scales = jrand.uniform(next(keys), shape=(num_traces,),
+        minval=min_pc_scale, maxval=max_pc_scale)
 
     pc_scales *= pc_mask
     return pc_scales
@@ -571,13 +572,15 @@ def sample_photocurrent_experiment(
     iid_noise = jrand.normal(next(keys), shape=pscs.shape) * iid_noise_std
 
     # combine all ingredients and normalize
-    input = pscs + prev_pc_shapes + curr_pcs + next_pcs
+    input = pscs + prev_pcs + curr_pcs + next_pcs
     target = curr_pcs
 
     if normalize_type == 'l2':
         maxv = (jnp.linalg.norm(input) + 1e-5 / num_traces)
     elif normalize_type == 'max':
         maxv = jnp.max(input, axis=-1, keepdims=True) + 1e-5
+    elif normalize_type == 'none':
+        maxv = jnp.ones((num_traces, 1))
     else:
         raise ValueError('unknown value for normalize_type')
 
