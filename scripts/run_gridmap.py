@@ -9,9 +9,8 @@ import h5py
 import sys
 import json
 
-sys.path.append('../')
-import grid_utils as util
-import subtract_utils as subtract_utils
+import subtractr
+import subtractr.utils as utils
 import os
 import argparse
 
@@ -73,14 +72,15 @@ if __name__ == "__main__":
     no_op = (not args.subtract_pc)
     if not no_op:
         print('Running opsin subtraction pipeline...')
-        subtractr_net = NeuralDemixer(path=args.subtractr_checkpoint,
-            device='cpu',
-            unet_args=dict(
-                down_filter_sizes=(16, 32, 64, 128),
-                up_filter_sizes=(64, 32, 16, 4),
-            )
-        )
-    results = subtract_utils.run_network_subtraction_pipeline(pscs, powers, targets, stim_mat,
+        # subtractr_net = NeuralDemixer(path=args.subtractr_checkpoint,
+        #     device='cpu',
+        #     unet_args=dict(
+        #         down_filter_sizes=(16, 32, 64, 128),
+        #         up_filter_sizes=(64, 32, 16, 4),
+        #     )
+        # )
+        subtractr_net = subtractr.Subtractr.load_from_checkpoint(args.subtractr_checkpoint)
+    results = utils.run_network_subtraction_pipeline(pscs, powers, targets, stim_mat,
         args.demixer_checkpoint, subtractr_net)
 
     num_planes = results['raw_map'].shape[-1]
