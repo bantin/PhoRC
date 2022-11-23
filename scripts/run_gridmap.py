@@ -80,8 +80,14 @@ if __name__ == "__main__":
         #     )
         # )
         subtractr_net = subtractr.Subtractr.load_from_checkpoint(args.subtractr_checkpoint)
-    results = utils.run_network_subtraction_pipeline(pscs, powers, targets, stim_mat,
-        args.demixer_checkpoint, subtractr_net)
+        results = utils.run_network_subtraction_pipeline(pscs, powers, targets, stim_mat,
+            args.demixer_checkpoint, subtractr_net, no_op=no_op)
+    else:
+        subtractr_net = None
+        results = utils.run_network_subtraction_pipeline(pscs, powers, targets, stim_mat,
+            args.demixer_checkpoint, subtractr_net, no_op=no_op)
+        
+        
 
     num_planes = results['raw_map'].shape[-1]
 
