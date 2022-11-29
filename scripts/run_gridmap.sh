@@ -12,7 +12,7 @@
 echo "Denoising m.s. grids"
 
 source ~/.bashrc
-conda activate circuitmap
+conda activate opsin_subtraction_experiments
 ml cuda/11.2.0 cudnn/8.2.1.32
 
 python run_gridmap.py "$@"
