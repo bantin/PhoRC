@@ -41,6 +41,9 @@ def parse_fit_options(argseq):
     parser.add_argument('--separate-by-power', action='store_true', default=False)
     parser.add_argument('--rank', type=int, default=1)
 
+    # optionally add a suffix to the saved filename, e.g to specify what arguments were used
+    parser.add_argument('--file_suffix', type=str, default="")
+    
     args = parser.parse_args(argseq)
 
     if args.xla_allocator_platform:
@@ -112,7 +115,7 @@ if __name__ == "__main__":
 
     # save args used to get the result
     argstr = json.dumps(args.__dict__)
-    outpath = dset_name + '_subtractr_caviar_results.npz'
+    outpath = dset_name + '_' + args.file_suffix + '_results.npz'
     np.savez(outpath, **results, args=argstr)
 
 
