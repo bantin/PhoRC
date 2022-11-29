@@ -14,7 +14,7 @@ import jax
 import jax.numpy as jnp
 import jax.random as jrand
 import glob
-from pytorch_lightning.callbacks import ModelCheckpoint
+from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor
 
 import subtractr.photocurrent_sim as photocurrent_sim
 import subtractr.backbones as backbones
@@ -104,6 +104,14 @@ class Subtractr(pl.LightningModule):
         parser.add_argument('--dim_hidden', type=int, default=128)
         parser.add_argument('--num_heads', type=int, default=4)
         parser.add_argument('--ln', type=bool, default=False)
+
+        # oneCycleLR
+        parser.add_argument('--use_onecyclelr', action='store_true')
+        parser.add_argument('--no_use_onecyclelr', dest='use_onecyclelr', action='store_false')
+        parser.set_defaults(use_onecyclelr=False)
+        parser.add_argument('--onecyclelr_max_lr', type=float, default=1e-1)
+        parser.add_argument('--onecyclelr_div_factor', type=float, default=25)
+        parser.add_argument('--onecyclelr_final_div_factor', type=float, default=1e4)
         
         return parent_parser
 
@@ -130,7 +138,19 @@ class Subtractr(pl.LightningModule):
         return self.backbone.forward(x)
 
     def configure_optimizers(self):
-        return torch.optim.SGD(self.parameters(), lr=self.hparams.learning_rate)
+
+        optim = torch.optim.SGD(self.parameters(), lr=self.hparams.learning_rate)
+        if args.use_onecyclelr:
+            scheduler = torch.optim.lr_scheduler.OneCycleLR(
+                optim,
+                total_steps=self.num_training_steps,
+                max_lr=args.onecyclelr_max_lr,
+                div_factor=args.onecyclelr_div_factor,
+                final_div_factor=args.onecyclelr_final_div_factor,
+            )
+            return [optim], [{"scheduler": scheduler, "interval": "step"}]
+        else:
+            return optim
 
     def loss_fn(self, inputs, targets):
         return nn.functional.mse_loss(inputs, targets)
@@ -306,7 +326,7 @@ class Subtractr(pl.LightningModule):
                     [train_keys, test_keys],
                     [self.train_path, self.test_path],
                     ['train', 'test']):
-                keyset_batched = jnp.split(keyset, jnp.arange(0, keyset.shape[0], args.sim_batch_size)[1:])
+                keyset_batched = jnp.split(keyset, jnp.arange(0, keyset.shape[0], args.batch_size)[1:])
                 for batch_idx,  these_keys in enumerate(keyset_batched):
                     expts = sample_and_postprocess(these_keys) 
                     curr_path = os.path.join(path, '%s_batch%d' % (label, batch_idx))
@@ -315,6 +335,24 @@ class Subtractr(pl.LightningModule):
         else:
             self.train_expts = sample_and_postprocess(train_keys)
             self.test_expts = sample_and_postprocess(test_keys)
+
+    @property
+    def num_training_steps(self) -> int:
+        """Total training steps inferred from datamodule and devices."""
+        if self.trainer.max_steps > 0:
+            return self.trainer.max_steps
+
+        limit_batches = self.trainer.limit_train_batches
+        batches = int(np.ceil(self.hparams['num_train'] / self.hparams['batch_size']))
+        batches = min(batches, limit_batches) if isinstance(limit_batches, int) else int(limit_batches * batches)     
+
+        num_devices = max(1, self.trainer.num_gpus, self.trainer.num_devices)
+        if self.trainer.tpu_cores:
+            num_devices = max(num_devices, self.trainer.tpu_cores)
+
+        effective_accum = self.trainer.accumulate_grad_batches * num_devices
+
+        return (batches // effective_accum) * self.trainer.max_epochs
 
 class MemDataset(torch.utils.data.Dataset):
     ''' Torch training dataset
@@ -368,7 +406,6 @@ def parse_args(argseq):
     parser.add_argument('--data_on_disk', action='store_true')
     parser.add_argument('--no_data_on_disk', dest='data_on_disk', action='store_false')
     parser.set_defaults(data_on_disk=False)
-    parser.add_argument('--sim_batch_size', type=int, default=10)
 
     # whether we erase training/test data when training completes.
     parser.add_argument('--cleanup', action='store_true')
@@ -441,9 +478,11 @@ if __name__ == "__main__":
         monitor="val_loss", filename='{epoch}-{val_loss}_best_val')
     periodic_checkpoint_callback = ModelCheckpoint(
         every_n_epochs=10, monitor=None, save_top_k=-1)
+    lr_monitor = LearningRateMonitor(logging_interval='step')
 
     # Run torch update loops
-    trainer = pl.Trainer.from_argparse_args(args, callbacks=[val_checkpoint_callback, periodic_checkpoint_callback])
+    trainer = pl.Trainer.from_argparse_args(args, callbacks=[val_checkpoint_callback,
+        periodic_checkpoint_callback, lr_monitor])
     trainer.fit(subtractr, train_dataloader, test_dataloader)
 
     # cleanup
