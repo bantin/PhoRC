@@ -195,7 +195,7 @@ def run_network_subtraction_pipeline(pscs, powers, targets,
     if no_op:
         est = np.zeros_like(pscs)
     else:
-        est = subtractr_net(pscs, batch_size=32)
+        est = subtractr_net(pscs)
     subtracted = pscs - est
 
     # load demixer checkpoint and demix

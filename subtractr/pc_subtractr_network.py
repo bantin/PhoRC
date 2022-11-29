@@ -23,7 +23,7 @@ from functools import partial
 from torch.utils.data import Dataset, DataLoader
 from argparse import ArgumentParser
 from jax import vmap
-from subtractr.photocurrent_sim import sample_photocurrent_experiment, postprocess_photocurrent_experiment_batch
+from subtractr.photocurrent_sim import sample_photocurrent_experiment
 
 # jax.config.update('jax_platform_name', 'cpu')
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = 'false'
@@ -44,8 +44,13 @@ class Subtractr(pl.LightningModule):
                             type=float, default=0.01)
         parser.add_argument('--photocurrent_scale_max',
                             type=float, default=1.1)
-        parser.add_argument('--pc_scale_min', type=float, default=0.1)
-        parser.add_argument('--pc_scale_max', type=float, default=10.0)
+
+        # units for these scales are nA
+        parser.add_argument('--pc_scale_min', type=float, default=0.01)
+        parser.add_argument('--pc_scale_max', type=float, default=2.0)
+        parser.add_argument('--psc_scale_min', type=float, default=0.01)
+        parser.add_argument('--psc_scale_max', type=float, default=0.5) 
+
         parser.add_argument('--gp_scale_min', type=float, default=0.01)
         parser.add_argument('--gp_scale_max', type=float, default=0.045)
         parser.add_argument('--iid_noise_std_min', type=float, default=0.001)
@@ -231,6 +236,21 @@ class Subtractr(pl.LightningModule):
             tau_r_min=args.tau_r_min,
             tau_r_max=args.tau_r_max,
         )
+
+        psc_shape_params = dict(
+            tau_r_lower = 10,
+            tau_r_upper = 40,
+            tau_diff_lower = 60,
+            tau_diff_upper = 120,
+            delta_lower=160,
+            delta_upper=400,
+            next_delta_lower=400,
+            next_delta_upper=899,
+            prev_delta_upper=150,
+            amplitude_lower=args.psc_scale_min,
+            amplitude_upper=args.psc_scale_max,
+        )
+
         key = jrand.PRNGKey(0)
         keys = iter(jrand.split(key, num=2))
 
@@ -239,7 +259,7 @@ class Subtractr(pl.LightningModule):
             onset_jitter_ms=args.onset_jitter_ms,
             onset_latency_ms=args.onset_latency_ms,
             pc_shape_params=pc_shape_params,
-            psc_shape_params=None,
+            psc_shape_params=psc_shape_params,
             min_pc_scale=args.pc_scale_min,
             max_pc_scale=args.pc_scale_max,
             min_pc_fraction=args.min_pc_fraction,

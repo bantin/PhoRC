@@ -46,6 +46,7 @@ def _sample_pscs_single_trace(key, trial_dur=900, size=1000, training_fraction=0
                               srate=20000, tau_r_lower=10, tau_r_upper=80, tau_diff_lower=2, tau_diff_upper=150,
                               delta_lower=160, delta_upper=400, next_delta_lower=400, next_delta_upper=899,
                               prev_delta_lower=-400, prev_delta_upper=-100,
+                              amplitude_lower=0.01, amplitude_upper=0.5,
                               mode_probs=None, prev_mode_probs=None, next_mode_probs=None,
                               max_modes=4):
 
@@ -73,16 +74,19 @@ def _sample_pscs_single_trace(key, trial_dur=900, size=1000, training_fraction=0
     max_samples = len(prev_mode_probs)
     target = jnp.sum(_sample_psc_kernel(next(keys), trial_dur=trial_dur, tau_r_lower=tau_r_lower,
                                         tau_r_upper=tau_r_upper, tau_diff_lower=tau_diff_lower, tau_diff_upper=tau_diff_upper,
-                                        delta_lower=delta_lower, delta_upper=delta_upper, n_samples_active=n_modes), axis=0)
+                                        delta_lower=delta_lower, delta_upper=delta_upper, n_samples_active=n_modes,
+                                        amplitude_lower=amplitude_lower, amplitude_upper=amplitude_upper), axis=0)
 
 
     prev_psc = jnp.sum(_sample_psc_kernel(next(keys), trial_dur=trial_dur, tau_r_lower=tau_r_lower,
                                           tau_r_upper=tau_r_upper, tau_diff_lower=tau_diff_lower, tau_diff_upper=tau_diff_upper,
-                                          delta_lower=prev_delta_lower, delta_upper=prev_delta_upper, n_samples_active=n_modes_prev), axis=0)
+                                          delta_lower=prev_delta_lower, delta_upper=prev_delta_upper, n_samples_active=n_modes_prev,
+                                          amplitude_lower=amplitude_lower, amplitude_upper=amplitude_upper), axis=0)
 
     next_psc = jnp.sum(_sample_psc_kernel(next(keys), trial_dur=trial_dur, tau_r_lower=tau_r_lower,
                                           tau_r_upper=tau_r_upper, tau_diff_lower=tau_diff_lower, tau_diff_upper=tau_diff_upper,
-                                          delta_lower=next_delta_lower, delta_upper=next_delta_upper, n_samples_active=n_modes_next), axis=0)
+                                          delta_lower=next_delta_lower, delta_upper=next_delta_upper, n_samples_active=n_modes_next,
+                                          amplitude_lower=amplitude_lower, amplitude_upper=amplitude_upper), axis=0)
 
     
     inputs = prev_psc + target + next_psc

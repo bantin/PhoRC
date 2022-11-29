@@ -511,15 +511,13 @@ def sample_photocurrent_experiment(
             tau_r_upper = 40,
             tau_diff_lower = 60,
             tau_diff_upper = 120,
-            trial_dur=900,
             delta_lower=160,
             delta_upper=400,
             next_delta_lower=400,
             next_delta_upper=899,
-            prev_delta_upper=150,   
-            # mode_probs=(0.8, 0.1, 0.05, 0.05),
-            # prev_mode_probs=(0.8, 0.1, 0.05, 0.05),
-            # next_mode_probs=(0.8, 0.1, 0.05, 0.05),
+            prev_delta_upper=150,
+            amplitude_lower=0.01,
+            amplitude_upper=0.5
         )
 
     # Sample photocurrent waveform and scale randomly

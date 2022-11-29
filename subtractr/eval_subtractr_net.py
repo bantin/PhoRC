@@ -22,6 +22,7 @@ if __name__ == "__main__":
     parser.add_argument('--dataset_path', type=str,
         default='../data/masato/B6WT_AAV_hsyn_chrome2f_gcamp8/preprocessed/220308_B6_Chrome2fGC8_030822_Cell2_opsPositive_A_planes_cmReformat.mat')
     parser.add_argument('--results_path', type=str)
+    parser.add_argument('--subtraction_method', type=str, default='network')
 
     # option to run demixer on raw traces before subtraction
     parser.add_argument('--show_raw_demixed', action='store_true')
@@ -36,15 +37,8 @@ if __name__ == "__main__":
     parser.add_argument('--network_type', type=str, default='demixer')
     args = parser.parse_args()
 
-    # Use pre-computed results if available. Otherwise, run the subtraction pipeline now.
-    if args.results_path is not None:
-        dset_name = os.path.basename(args.results_path)
-        print('Loading results from: %s' % args.results_path)
-        results = dict(np.load(args.results_path, allow_pickle=True))
-        stim_mat = results['stim_mat']
-        pscs = results['raw_matrix']
-    else:
-        dset_name = os.path.basename(args.dataset_path)
+    dset_name = os.path.basename(args.dataset_path)
+    if args.subtraction_method == 'network':
         assert args.subtractr_checkpoint, "Must pass a subtractr checkpoint."
         if args.network_type == 'demixer':
             net = NeuralDemixer(path=args.subtractr_checkpoint,
@@ -57,36 +51,42 @@ if __name__ == "__main__":
         else:
             raise ValueError('unrecognized network type: %s' % args.network_type)
 
-        with h5py.File(args.dataset_path) as f:
-            pscs = np.array(f['pscs']).T
-            stim_mat = np.array(f['stimulus_matrix']).T
-            targets = np.array(f['targets']).T
-            powers = np.max(stim_mat, axis=0)
+    with h5py.File(args.dataset_path) as f:
+        pscs = np.array(f['pscs']).T
+        stim_mat = np.array(f['stimulus_matrix']).T
+        targets = np.array(f['targets']).T
+        powers = np.max(stim_mat, axis=0)
 
-            if 'num_pulses_per_holo' in f:
-                npulses = np.array(f['num_pulses_per_holo'], dtype=int).item()
-            else:
-                npulses = 1
+    if 'num_pulses_per_holo' in f:
+        npulses = np.array(f['num_pulses_per_holo'], dtype=int).item()
+    else:
+        npulses = 1
 
-        stim_mat_list, pscs_list, powers_list = utils.separate_by_pulses(stim_mat, pscs, npulses=npulses)
-        stim_mat = stim_mat_list[-1]
-        pscs = pscs_list[-1]
-        powers = powers_list[-1]
+    stim_mat_list, pscs_list, powers_list = utils.separate_by_pulses(stim_mat, pscs, npulses=npulses)
+    stim_mat = stim_mat_list[-1]
+    pscs = pscs_list[-1]
+    powers = powers_list[-1]
 
-        # get rid of any trials where we didn't actually stim
-        good_idxs = (powers > 0)
-        pscs = pscs[good_idxs,:]
-        stim_mat = stim_mat[:,good_idxs]
-        powers = powers[good_idxs]
+    # get rid of any trials where we didn't actually stim
+    good_idxs = (powers > 0)
+    pscs = pscs[good_idxs,:]
+    stim_mat = stim_mat[:,good_idxs]
+    powers = powers[good_idxs]
 
+    if args.subtraction_method == 'network':
         results = utils.run_network_subtraction_pipeline(
             pscs, powers, targets, stim_mat,
             args.demixer_checkpoint, net,
             run_raw_demix=args.show_raw_demixed,
         )
-        results['powers'] = powers
-        results['stim_mat'] = stim_mat
-        results['targets'] = targets
+    elif args.subtraction_method == 'lowrank':
+        results = utils.run_subtraction_pipeline(
+            pscs, powers, targets, stim_mat, 
+            args.demixer_checkpoint,
+        )
+    results['powers'] = powers
+    results['stim_mat'] = stim_mat
+    results['targets'] = targets
 
     # sort results so that reshaping caviar weights works
     # results = util.sort_results(results)
@@ -150,8 +150,13 @@ if __name__ == "__main__":
         results['powers'],
     )
 
+    if args.experiment_name is None:
+        experiment_name = args.subtraction_method
+    else:
+        experiment_name = args.experiment_name
+        
     outpath = os.path.join(args.save_path,
-        args.experiment_name + '_' + dset_name + '_summary.pdf')
+        experiment_name + '_' + dset_name + '_summary.pdf')
     print('saving figure to: %s' % outpath)
     pdf = matplotlib.backends.backend_pdf.PdfPages(outpath)
     pdf.savefig(fig1)

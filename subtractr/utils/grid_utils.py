@@ -616,3 +616,20 @@ def load_h5_data(dataset_path, pulse_idx=-1):
         powers = powers_list[pulse_idx]
 
         return pscs, stim_mat, powers, targets
+
+
+def plot_collection(ax, xs, ys, *args, **kwargs):
+
+  ax.plot(xs,ys, *args, **kwargs)
+
+  if "label" in kwargs.keys():
+
+    #remove duplicates
+    handles, labels = plt.gca().get_legend_handles_labels()
+    newLabels, newHandles = [], []
+    for handle, label in zip(handles, labels):
+      if label not in newLabels:
+        newLabels.append(label)
+        newHandles.append(handle)
+
+    plt.legend(newHandles, newLabels)
