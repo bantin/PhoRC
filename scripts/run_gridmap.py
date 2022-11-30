@@ -43,7 +43,12 @@ def parse_fit_options(argseq):
 
     # optionally add a suffix to the saved filename, e.g to specify what arguments were used
     parser.add_argument('--file_suffix', type=str, default="")
-    
+
+    # whether we're working with grid or targeted data    
+    parser.add_argument('--grid', action='store_true')
+    parser.add_argument('--targeted', dest='grid', action='store_false')
+    parser.set_defaults(grid=True)
+
     args = parser.parse_args(argseq)
 
     if args.xla_allocator_platform:
@@ -68,20 +73,12 @@ if __name__ == "__main__":
     stim_mat = stim_mat[:,good_idxs]
     powers = powers[good_idxs]
     
-
     # Optionally run photocurrent subtraction.
     # if no_op is True, the subtraction is a no_op and the following call
     # simply populates the results dictionary.
     no_op = (not args.subtract_pc)
     if not no_op:
         print('Running opsin subtraction pipeline...')
-        # subtractr_net = NeuralDemixer(path=args.subtractr_checkpoint,
-        #     device='cpu',
-        #     unet_args=dict(
-        #         down_filter_sizes=(16, 32, 64, 128),
-        #         up_filter_sizes=(64, 32, 16, 4),
-        #     )
-        # )
         subtractr_net = subtractr.Subtractr.load_from_checkpoint(args.subtractr_checkpoint)
         results = utils.run_network_subtraction_pipeline(pscs, powers, targets, stim_mat,
             args.demixer_checkpoint, subtractr_net, no_op=no_op)
@@ -90,15 +87,17 @@ if __name__ == "__main__":
         results = utils.run_network_subtraction_pipeline(pscs, powers, targets, stim_mat,
             args.demixer_checkpoint, subtractr_net, no_op=no_op)
         
-        
-
-    num_planes = results['raw_map'].shape[-1]
+    if args.grid:
+        print('grid-data flag is set. Adding tensors and maps to results dict for plotting.')
+        results = utils.add_grid_results(results)
+    else:
+        print('Running on targeted data. Skipping grid tensors and maps...')
 
     # Run CAVIaR algorithm
     if args.run_caviar:
         N = stim_mat.shape[0]
         model = cm.Model(N)
-        model.fit(results['demixed_matrix'],
+        model.fit(results['demixed'],
             stim_mat,
             method='caviar',
             fit_options={
@@ -109,9 +108,6 @@ if __name__ == "__main__":
         )
 
         results['model_state'] = model.state
-    results['powers'] = powers
-    results['targets'] = targets
-    results['stim_mat'] = stim_mat
 
     # save args used to get the result
     argstr = json.dumps(args.__dict__)

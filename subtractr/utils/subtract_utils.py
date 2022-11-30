@@ -188,6 +188,25 @@ def run_subtraction_pipeline(pscs, powers, targets, stim, demixer_checkpoint, no
 
     )
 
+def add_grid_results(results):
+    labels = ['raw', 'est', 'subtracted', 'demixed']
+    if 'raw_demixed' in results:
+        labels.append('raw_demixed')
+    for label in labels:
+        tensor = util.make_psc_tensor_multispot(
+            results[label],
+            results['powers'], 
+            results['targets'],
+            results['stim_mat'] 
+        )
+        map = traces_tensor_to_map(tensor)
+
+        # add tensor and map to results for 
+        # convenient grid figures
+        results[label + '_tensor'] = tensor
+        results[label + '_map'] = map
+
+    return results
 
 def run_network_subtraction_pipeline(pscs, powers, targets,
     stim, demixer_checkpoint, subtractr_net, no_op=False, run_raw_demix=False):
@@ -202,47 +221,16 @@ def run_network_subtraction_pipeline(pscs, powers, targets,
     demixer = NeuralDemixer(path=demixer_checkpoint, device='cpu')
     demixed = util.denoise_pscs_in_batches(subtracted, demixer)
 
-    # optionally run the demixer on the traces before subtraction
-    raw_demixed_tensor = None
-    raw_demixed_map = None
-    if run_raw_demix:
-        raw_demixed = util.denoise_pscs_in_batches(pscs, demixer)
-        raw_demixed_tensor = util.make_psc_tensor_multispot(raw_demixed, 
-            powers, targets, stim)
-        raw_demixed_map = traces_tensor_to_map(raw_demixed_tensor)
-
-    # convert to tensors for easier plotting
-    raw_pscs_tensor = util.make_psc_tensor_multispot(pscs, powers, targets, stim)
-    est_pscs_tensor = util.make_psc_tensor_multispot(est, powers, targets, stim)
-    subtracted_pscs_tensor = util.make_psc_tensor_multispot(subtracted, powers, targets, stim)
-    demixed_pscs_tensor = util.make_psc_tensor_multispot(demixed, powers, targets, stim)
-
-    # make plot of spatial maps
-    mean_map = traces_tensor_to_map(raw_pscs_tensor)
-    mean_map_subtracted = traces_tensor_to_map(subtracted_pscs_tensor)
-    mean_map_demixed = traces_tensor_to_map(demixed_pscs_tensor)
-
     return dict(
+        stim_mat=stim,
+        powers=powers, 
+        targets=targets,
+
         # return traces matrices
-        raw_matrix=pscs,
-        est_matrix=est,
-        subtracted_matrix=subtracted,
-        demixed_matrix=demixed,
-        
-        # return traces tensors
-        raw_tensor=raw_pscs_tensor,
-        est_tensor=est_pscs_tensor,
-        subtracted_tensor=subtracted_pscs_tensor,
-        demixed_tensor=demixed_pscs_tensor,
-
-        # return grid maps
-        raw_map=mean_map,
-        subtracted_map=mean_map_subtracted,
-        demixed_map=mean_map_demixed,
-
-        # optional: show performance of just demixer
-        raw_demixed_tensor=raw_demixed_tensor,
-        raw_demixed_map=raw_demixed_map,
+        raw=pscs,
+        est=est,
+        subtracted=subtracted,
+        demixed=demixed,
 
     )
 
