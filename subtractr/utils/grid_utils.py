@@ -46,6 +46,10 @@ def sequential_map(vals):
 
 
 def sequential_map_nd(vals, axis):
+    '''
+    Given an array of values, return a dictionary mapping each unique value
+    along `axis` to a sequential index.
+    '''
     uniques = np.unique(vals, axis=axis)
     return {tuple(x): i for i, x in enumerate(uniques)}
 
@@ -72,69 +76,6 @@ def make_stim_matrix(I, L):
     return stim, loc_map
 
 
-def make_psc_tensor(psc, I, L):
-    '''
-    Stack all observations into a PSC tensor of shape powers x height x width x trials x time.
-
-    If not all pixels were hit the same number of times, pad the array with nan.
-    '''
-    num_trials = L.shape[0]
-    powers = np.unique(I)
-    num_powers = len(powers)
-    timesteps = psc.shape[-1]
-
-    # First, we need to compute the maximum number of times a pixel was stimmed.
-    # If a pixel was stimmed 10x at 30mW and 10x at 50mW, we want to count these separately,
-    # so we stack powers and locations to find stims at each unique power.
-    unique_locs, counts = np.unique(np.c_[L, I], axis=0, return_counts=True)
-    max_stims = np.max(counts)
-
-    # Now extract unique x, y, z
-    xs = np.unique(L[:, 0])
-    ys = np.unique(L[:, 1])
-    zs = np.unique(L[:, 2])
-
-    # create maps to map from location in real coordinates to location in index coordinates
-    x_map = sequential_map(xs)
-    y_map = sequential_map(ys)
-    z_map = sequential_map(zs)
-    p_map = sequential_map(powers)
-
-    # Create array and fill with nan
-    psc_tensor = np.full(
-        (num_powers, len(xs), len(ys), len(zs), max_stims, timesteps),
-        fill_value=np.nan)
-    stim_inds = np.zeros((num_powers, len(xs), len(ys), len(zs)), dtype=int)
-
-    # create empty stim matrix
-    N = np.unique(L, axis=0).shape[0]
-    stim_mat = np.zeros((N, num_trials))
-
-    dims = (len(xs), len(ys), len(zs))
-    for trial in range(num_trials):
-
-        # pack psc traces into tensor by location and power
-        powerloc_idx = (p_map[I[trial]],
-                        x_map[L[trial, 0]],
-                        y_map[L[trial, 1]],
-                        z_map[L[trial, 2]],
-                        )
-
-        stim_idx = stim_inds[powerloc_idx]
-        combined_idx = (*powerloc_idx, stim_idx)
-        psc_tensor[combined_idx] = psc[trial]
-
-        # increment number of stims for a given location at a given power
-        stim_inds[powerloc_idx] += 1
-
-        # Fill in stim matrix
-        loc_idx = (x_map[L[trial, 0]], y_map[L[trial, 1]], z_map[L[trial, 2]])
-        pixel_idx = np.ravel_multi_index(loc_idx, dims)
-        stim_mat[pixel_idx, trial] = I[trial]
-
-    return psc_tensor
-
-
 def get_max_hits(I, stim):
     powers = np.unique(I)
     num_powers = len(powers)
@@ -156,6 +97,8 @@ def make_psc_tensor_multispot(pscs, powers, targets, stim_mat):
         L: array of size (num_stims x num_spots x 3).
         I: array of size (num_stims)
         stim: array of size (num_pixels x num_stims)
+    returns:
+        psc_tensor: array of size (num_powers x num_pixels x num_stims x num_timesteps)
     '''
     num_trials = powers.shape[0]
     unique_powers = np.unique(powers)
@@ -399,11 +342,22 @@ def make_grid_latencies(grid_waveforms,
 def plot_spike_inference_with_waveforms(den_psc, stim, I, model_state, waveforms=None, latencies=None,
                                         spike_thresh=0.01, save=None, ymax=None, n_plots=15, num_trials=30,
                                         weights=None, col_width=10.5, row_height=0.6, order=None,
-                                        title=None, raw_psc=None, fontsize=14):
+                                        title=None, raw_psc=None, fontsize=14, normalize='demixed'):
     N = stim.shape[0]
     K = den_psc.shape[0]
     trial_len = 900
-    normalisation_factor = np.max(np.abs(den_psc))
+
+    if normalize == 'demixed':
+        normalisation_factor = np.max(np.abs(den_psc)) * np.ones(n_plots)
+    elif normalize == 'raw':
+        normalisation_factor = np.max(np.abs(raw_psc)) * np.ones(n_plots)
+    elif normalize == 'demixed_row':
+        normalisation_factor = np.max(np.abs(den_psc), axis=-1)
+    elif normalize == 'raw_row':
+        normalisation_factor = np.max(np.abs(raw_psc), axis=-1)
+    else:
+        raise ValueError('Unrecognized value for normalize argument.')
+    
     trace_linewidth = 0.65
     ymax = 1.05
     ymin = -0.05 * ymax
@@ -443,12 +397,12 @@ def plot_spike_inference_with_waveforms(den_psc, stim, I, model_state, waveforms
                 [stim_locs, np.where(stim[n] == pwr)[0][:trials_per_power]])
 
         stim_locs = stim_locs.astype(int)
-        this_y_psc = den_psc[stim_locs].flatten()/normalisation_factor
+        this_y_psc = den_psc[stim_locs].flatten()/normalisation_factor[n]
         n_repeats = np.min([len(stim_locs), num_trials])
         trial_breaks = np.arange(0, trial_len * n_repeats + 1, trial_len)
 
         if raw_psc is not None:
-            this_y_psc_raw = raw_psc[stim_locs].flatten()/normalisation_factor
+            this_y_psc_raw = raw_psc[stim_locs].flatten()/normalisation_factor[n]
 
         plt.xlim([0, trial_len*n_repeats])
 
@@ -500,7 +454,7 @@ def plot_spike_inference_with_waveforms(den_psc, stim, I, model_state, waveforms
             for power_idx, power in enumerate(powers):
                 ax = fig.add_subplot(gs[m, power_idx])
 
-                plt.plot(waveforms[power_idx, n, :]/normalisation_factor,
+                plt.plot(waveforms[power_idx, n, :]/normalisation_factor[n],
                          color=waveform_colors[power_idx], linewidth=trace_linewidth)
 
                 # draw vertical line at inferred latency, first convert to index
@@ -633,3 +587,20 @@ def plot_collection(ax, xs, ys, *args, **kwargs):
         newHandles.append(handle)
 
     plt.legend(newHandles, newLabels)
+
+def index_coords_to_image_coords(index_pt, targets):
+    '''
+    Converts a point in pixel coordinates to um
+    '''
+
+    # conversion from index coords to image coords
+    # is a linear transform img_x = a*idx_x + b
+    # We perform the same transform for x,y,z
+    img_pt = np.zeros_like(index_pt)
+    for i, coord in enumerate(index_pt):
+        unique_tars = np.unique(targets[:,i])
+        b = unique_tars[0]
+        a = unique_tars[1] - unique_tars[0]
+        img_pt[i] = a*coord + b
+
+    return img_pt
