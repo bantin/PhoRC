@@ -10,13 +10,12 @@ from dash.dependencies import Input, Output, State
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-import h5py
-import sys
+import pickle
 
-sys.path.append('../')
-import grid_utils as util
-import subtract_utils
+import subtractr.utils as util
 import os
+
+from itertools import cycle
 
 
 def _ask_user_for_path():
@@ -39,7 +38,7 @@ def _load_data(path):
         raw_lasso_resp = util.circuitmap_lasso_cv(stim_mat, pscs)[0]
         raw_map = raw_lasso_resp.reshape(raw_tensor.shape[0:-2])
     else:
-        raw_map = subtract_utils.traces_tensor_to_map(raw_tensor)
+        raw_map = util.traces_tensor_to_map(raw_tensor)
 
     num_powers = raw_map.shape[0]
     num_planes = raw_map.shape[-1]
@@ -49,10 +48,25 @@ def _load_data(path):
 
     return raw_tensor, raw_map, num_powers, num_planes
 
-def save_data(traces, path):
-    with h5py.File(path, 'a') as f:
-        f.create_dataset('traces', data=traces)
+def save_data(path):
+    '''
+    Save the traces_dict to a file at path
+    '''
+    global saved_traces
+    with open(path, 'wb') as f:
+        pickle.dump(saved_traces, f)
 
+def load_traces_dict(path):
+    '''
+    Load the traces_dict from a file at path
+    '''
+    global saved_traces
+
+    if saved_traces:
+        print('You already have traces saved, merging with new traces')
+    with open(path, 'rb') as f:
+        new_traces = pickle.load(f)
+        saved_traces = {**saved_traces, **new_traces}
 
 
 ## all functions with callbacks go here!
@@ -68,9 +82,12 @@ app = dash.Dash(__name__)
 def plot_traces(map_click, trace_click):
     global tracefig
     global map_fig
+    global load_path
 
     timesteps=900
-    colors = px.colors.qualitative.Dark24
+
+    # create cycle of colors
+    colors = cycle(px.colors.qualitative.Dark24)
 
     tracefig = make_subplots(rows=2, cols=1)
     if not map_click and not trace_click:
@@ -101,7 +118,7 @@ def plot_traces(map_click, trace_click):
                 go.Scatter(
                     x=np.arange(timesteps),
                     y=trace,
-                    line=dict(color=colors[trace_idx])
+                    line=dict(color=next(colors))
                 ),
                 row=1,
                 col=1
@@ -118,17 +135,19 @@ def plot_traces(map_click, trace_click):
         power_idx = clicked_plot_num % num_powers
         trace_idx = trace_click['points'][0]['curveNumber']
 
-        #Add trace to saved list
-        saved_traces.append(raw_tensor[power_idx,
-            x, y, plane_idx, trace_idx])
+        # Here we want to save the trace to a dictionary.
+        # The keys are tuples of (filename, power, x, y, plane, trace)
+        # and the values are traces
+        saved_traces[(load_path, power_idx, x, y, plane_idx, trace_idx)] = \
+        raw_tensor[power_idx, x, y, plane_idx, trace_idx]
 
     # plot saved traces
-    for trace_idx, trace in enumerate(saved_traces):
+    for key, trace in saved_traces.items():
         tracefig.add_trace(
             go.Scatter(
                 x=np.arange(timesteps),
                 y=trace,
-                line=dict(color=colors[trace_idx])
+                line=dict(color=next(colors))
             ),
             row=2,
             col=1
@@ -151,16 +170,18 @@ def plot_traces(map_click, trace_click):
     Input('load_path', 'value'),
     Input('save-btn', 'n_clicks'),
     Input('save_path', 'value'))
-def load_new_map(load_nclicks, load_path, save_nclicks, save_path):
+def load_new_map(load_nclicks, load_path_input, save_nclicks, save_path):
     global raw_map
     global num_powers
     global raw_tensor
     global num_planes
     global map_fig
+    global load_path
 
     try:
         if dash.callback_context.triggered_id == 'load-btn' and load_path:
             print('loading new dataset: %s' % load_path)
+            load_path = load_path_input
             raw_tensor, raw_map, num_powers, num_planes = _load_data(load_path)
 
         elif dash.callback_context.triggered_id == 'save-btn' and save_path:
@@ -191,14 +212,16 @@ def load_new_map(load_nclicks, load_path, save_nclicks, save_path):
     
 
 # define all global vars and initialize
-DEFAULT_PATH = "../data/masato/B6WT_AAV_hsyn_chrome2f_gcamp8/preprocessed/220308_B6_Chrome2fGC8_030822_Cell1_OpsPositive_A_planes_cmReformat.mat"
 global saved_traces
 global raw_tensor
 global raw_map
 global num_powers
 global num_planes
-saved_traces = []
-raw_tensor, raw_map, num_powers, num_planes = _load_data(DEFAULT_PATH)
+global load_path
+
+saved_traces = {}
+load_path = "../data/masato/B6WT_AAV_hsyn_chrome2f_gcamp8/preprocessed/220308_B6_Chrome2fGC8_030822_Cell1_OpsPositive_A_planes_cmReformat.mat"
+raw_tensor, raw_map, num_powers, num_planes = _load_data(load_path)
 map_fig = load_new_map(None, None, None, None)
 
 
@@ -236,12 +259,11 @@ app.layout = html.Div([
             # inputs specifying dataset to save
             dcc.Input(id="save_path", type="text", placeholder="output_path",
                 style={'marginRight':'10px'}),
-            
             html.Button('Save', id='save-btn', n_clicks=0),
             html.Button('Undo', id='btn-nclicks-2', n_clicks=0), 
         ]),
         # html.Div(id='relay-dump'),
-    ])
+])
 
 
 

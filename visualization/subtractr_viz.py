@@ -1,47 +1,75 @@
+import os
 import numpy as np
-from sklearn.feature_extraction import img_to_graph
 import plotly.express as px
-import math, json
 import dash
+import subtractr.utils as utils
 from dash import dcc, html, callback_context
-from skimage import measure
-from scipy.ndimage import gaussian_filter
-from dash.dependencies import Input, Output, State
-import scipy.sparse
-import copy
-from scipy.ndimage import convolve
-import cv2
+from dash.dependencies import Input, Output
 import plotly.graph_objects as go
-import skimage.io
 from plotly.subplots import make_subplots
 
-import time
-import matplotlib.pyplot as plt
-import matplotlib.animation
-import os
 
 
-# load results dictionary
-# use placeholder path for now
-path = "../opsin_subtraction_experiments/220308_B6_Chrome2fGC8_030822_Cell2_opsPositive_A_planes_cunning-brattain-results.npz"
-results = np.load(path)
+app = dash.Dash(__name__)
 
-# reshape map_img to create a single 4D array for all maps.
-# axis 0 is power, so that we can index using power_slider value.
-# axis 1 is both maps (raw, subtracted, etc) along with z_planes
-# this is convenient for using the face_col argument of imshow
-maps = np.stack([results['raw_map'],
-    results['subtracted_map'], results['demixed_map']],
-    axis=0,
-)
-num_maps, num_powers, num_xs, num_ys, num_zs = maps.shape
-
-maps = np.transpose(maps, (1, 4, 0, 2, 3))
-maps = np.reshape(maps, (num_powers, num_maps * num_zs, num_xs, num_ys))
-
-unique_powers = np.unique(results['powers'])
+def _load_data(path):
+    assert os.path.exists(path), f"Path {path} does not exist"
+    results = np.load(path, allow_pickle=True)
+    results = utils.sort_results(results)
 
 
+    # reshape map_img to create a single 4D array for all maps.
+    # axis 0 is power, so that we can index using power_slider value.
+    # axis 1 is both maps (raw, subtracted, etc) along with z_planes
+    # this is convenient for using the face_col argument of imshow.
+    # If the results dictionary contains 'model_state'
+    # then we also include CAVIaR weights.
+    # if 'model_state' in results:
+    #     weights = results['model_state']['mu']
+    #     weights_map = weights.reshape(results['raw_map'].shape[1:])
+    #     weights_map = np.broadcast_to(weights_map,
+    #         (results['raw_map'].shape[0], *weights_map.shape))
+    #     maps = np.stack(
+    #         [results['raw_map'],
+    #         results['subtracted_map'],
+    #         results['demixed_map'], 
+    #         weights_map],
+    #         axis=0,
+    #     )
+    # else:
+    #     maps = np.stack([results['raw_map'],
+    #         results['subtracted_map'], results['demixed_map']],
+    #         axis=0,
+    #     )
+    # num_maps, num_powers, num_xs, num_ys, num_zs = maps.shape
+
+    # maps = np.transpose(maps, (1, 4, 0, 2, 3))
+    # maps = np.reshape(maps, (num_powers, num_maps * num_zs, num_xs, num_ys))
+    maps = [
+        results['raw_map'],
+        results['subtracted_map'],
+        results['demixed_map'],
+    ]
+    if 'model_state' in results:
+        weights = results['model_state']['mu']
+        weights_map = weights.reshape(results['raw_map'].shape[1:])
+        weights_map = np.broadcast_to(weights_map,
+            (results['raw_map'].shape[0], *weights_map.shape))
+        maps.append(weights_map)
+    return maps, results
+
+
+# setup before callbacks
+global maps
+global results
+global tracefig
+global num_powers
+global num_maps
+
+path = "../figures/full_pipeline/220308_B6_Chrome2fGC8_030822_Cell2/220308_B6_Chrome2fGC8_030822_Cell2_opsPositive_A_grid_cmReformat_with_nws_results.npz"
+maps, results = _load_data(path)
+num_powers = maps[0].shape[0]
+num_maps = len(maps)
 
 # placeholder until first callback
 tracefig = make_subplots(rows=4, cols=1)
@@ -49,18 +77,14 @@ tracefig.update_layout(
     height=800,
 )
 
-app = dash.Dash(__name__)
-
-
 ## all functions with callbacks go here!
-
 @app.callback(
     # Output('relay-dump','children'),
     Output('graph4','figure'),
     # Output('button-value','children'),
     Input('map_fig','clickData'),
     Input('power_slider', 'value'))
-def plot_traces(clickData, value):
+def plot_traces(clickData, value, max_start_idx=100, max_end_idx=700):
     tracefig = make_subplots(rows=4, cols=1)
     if not clickData:
         raise dash.exceptions.PreventUpdate
@@ -74,10 +98,11 @@ def plot_traces(clickData, value):
     colors = px.colors.qualitative.Dark24
     idx = 1
 
-    raw_max = np.nanmax(results['raw_tensor'][value, x, y, plane_idx, :])
-    raw_min = np.nanmin(results['raw_tensor'][value, x, y, plane_idx, :])
-    subtracted_max = np.nanmax(results['subtracted_tensor'][value, x, y, plane_idx, :])
-    subtracted_min = np.nanmin(results['subtracted_tensor'][value, x, y, plane_idx, :])
+    
+    raw_max = np.nanmax(results['raw_tensor'][value, x, y, plane_idx, :, max_start_idx:max_end_idx])
+    raw_min = np.nanmin(results['raw_tensor'][value, x, y, plane_idx, :, max_start_idx:max_end_idx])
+    subtracted_max = np.nanmax(results['subtracted_tensor'][value, x, y, plane_idx, :, max_start_idx:max_end_idx])
+    subtracted_min = np.nanmin(results['subtracted_tensor'][value, x, y, plane_idx, :, max_start_idx:max_end_idx])
     for label in ['raw_tensor', 'est_tensor', 'subtracted_tensor', 'demixed_tensor']:
         traces = results[label][value, x, y, plane_idx, :]
         timesteps = traces.shape[-1]
@@ -86,7 +111,8 @@ def plot_traces(clickData, value):
                 go.Scatter(
                     x=np.arange(timesteps),
                     y=trace,
-                    line=dict(color=colors[trace_idx])
+                    line=dict(color=colors[trace_idx]),
+                    showlegend=False,
                 ),
                 row=idx,
                 col=1
@@ -105,25 +131,83 @@ def plot_traces(clickData, value):
 
 @app.callback(
     Output('map_fig','figure'),
-    Input('power_slider','value'))
-def plot_maps(power_idx):
-    map_fig=px.imshow(
-        maps[power_idx,...],
-        facet_col=0,
-        facet_col_wrap=num_maps,
-        color_continuous_scale='jet',
-        facet_col_spacing=0.03,
-        facet_row_spacing=0.03,
-        zmin=0,
-        zmax=20,
-        origin='lower')
+    Input('load-btn','n_clicks'),
+    Input('load_path', 'value'),
+    Input('power_slider','value'),
+)
+def plot_maps(load_nclicks, load_path, power_idx):
+    global maps
+    global results
+    global num_maps
+    global num_powers
+
+    try :
+        if dash.callback_context.triggered_id == 'load-btn' and load_path:
+            maps, results = _load_data(load_path)
+            num_maps = len(maps)
+            num_powers = maps[0].shape[0]
+    except dash.exceptions.MissingCallbackContextException:
+        pass
+
+    # instead of using the facet_col argument,
+    # we can create subplots and plot each map individually
+    num_zs = maps[0].shape[-1]
+    map_fig = make_subplots(rows=num_zs, cols=len(maps),
+        shared_xaxes=True, shared_yaxes=True)
+
+    for map_idx, map in enumerate(maps):
+        maxval = np.nanmax(map[power_idx,...])
+        for z_idx in range(num_zs):
+            if z_idx == 0:
+                cbar_dict = dict(
+                    len=(1 / (num_maps + 1)),
+                    lenmode='fraction',
+                    y=1.05,
+                    x=(1 / num_maps) * (map_idx + 0.5),
+                    yanchor='middle',
+                    orientation='h',
+                )
+                map_fig.add_trace(
+                    go.Heatmap(
+                        z=map[power_idx, :, :, z_idx],
+                        zmin=0,
+                        zmax=maxval,
+                        colorbar=cbar_dict,
+                        x=None,
+                    ),
+                    row=z_idx+1,
+                    col=map_idx+1,
+                )
+            else:
+                map_fig.add_trace(
+                    go.Heatmap(
+                        z=map[power_idx, :, :, z_idx],
+                        zmin=0,
+                        zmax=maxval,
+                        colorbar=cbar_dict,
+                        showscale=False,
+                    ),
+                    row=z_idx+1,
+                    col=map_idx+1,
+                )
+
+    # map_fig=px.imshow(
+    #     maps[power_idx,...],
+    #     facet_col=0,
+    #     facet_col_wrap=num_maps,
+    #     color_continuous_scale='jet',
+    #     facet_col_spacing=0.03,
+    #     facet_row_spacing=0.03,
+    #     zmin=0,
+    #     # zmax=20,
+    #     origin='lower')
 
     map_fig.layout.coloraxis.showscale = True
     map_fig.update_layout(
         height=800,
     )
     return map_fig
-map_fig = plot_maps(0) # initialize
+map_fig = plot_maps(None, None, 0)
 
 app.layout = html.Div([
 
@@ -142,13 +226,26 @@ app.layout = html.Div([
         ]),
 
         # second row
-        html.Div(dcc.Slider(0, num_powers-1, 1,
-                id='power_slider',
-                value=0,)
-        ),
-        # html.Div(id='relay-dump'),
+        html.Div([
+            html.Div(dcc.Slider(0, num_powers-1, 1,
+                    id='power_slider',
+                    value=0,)
+            ),
+        ]),
+
+        # third row
+        html.Div([
+            # inputs specifying dataset to load
+            dcc.Input(id="load_path", type="text", placeholder="input_path",
+                style={'marginRight':'10px'}),
+            html.Button('Load dataset', id='load-btn', n_clicks=0,
+                style={'marginRight': '20px'}),
+        ])
+        
     ])
 
-# Run app and display result inline in the notebook
+
 if __name__ == '__main__':
     app.run_server(debug=True,port=8051)
+    
+
