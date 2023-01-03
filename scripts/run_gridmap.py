@@ -109,11 +109,13 @@ if __name__ == "__main__":
                     ['single', 'multi']):
                 print('Running CAVIaR on {} target trials...'.format(target_count))
                 these_idxs = np.sum(results['stim_mat'] > 0, axis=0) == target_count
-                stim_mat = results['stim_mat'][:,these_idxs]
+                stim_mat_curr = results['stim_mat'][:,these_idxs]
+                psc_curr = results['demixed'][these_idxs]
                 N = stim_mat.shape[0]
                 model = cm.Model(N)
-                model.fit(results['demixed'][:,these_idxs],
-                    stim_mat,
+                model.fit(
+                    psc_curr,
+                    stim_mat_curr,
                     method='caviar',
                     fit_options={
                         'msrmp': args.msrmp,
