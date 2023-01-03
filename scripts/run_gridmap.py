@@ -130,12 +130,12 @@ if __name__ == "__main__":
                 results['demixed_' + label] = results['demixed'][these_idxs]
                 results['stim_mat_' + label] = results['stim_mat'][:,these_idxs]
 
-                # delete the original keys which are not separated by target count
-                del results['raw']
-                del results['est']
-                del results['subtracted']
-                del results['demixed']
-                del results['stim_mat']
+            # delete the original keys which are not separated by target count
+            del results['raw']
+            del results['est']
+            del results['subtracted']
+            del results['demixed']
+            del results['stim_mat']
 
         else:
             print('Found only %d spot data' % unique_target_counts[0])
