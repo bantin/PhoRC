@@ -511,6 +511,7 @@ def sample_photocurrent_experiment(
             tau_r_upper = 40,
             tau_diff_lower = 60,
             tau_diff_upper = 120,
+            trial_dur=900,
             delta_lower=160,
             delta_upper=400,
             next_delta_lower=400,

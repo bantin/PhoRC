@@ -190,7 +190,7 @@ class Subtractr(pl.LightningModule):
 
             dem = self.forward(
                 torch.tensor(
-                    (traces/maxv)[None,:,:], dtype=torch.float32, device=self.device
+                    (traces/maxv), dtype=torch.float32, device=self.device
                 )
             ).cpu().detach().numpy().squeeze() * maxv
 
@@ -209,7 +209,7 @@ class Subtractr(pl.LightningModule):
         if sort:
             idxs = np.argsort(np.linalg.norm(traces[:, 100:250], axis=-1))
         else:
-            idxs = np.arange(num_traces)
+            idxs = np.arange(traces.shape[0])
         
         # save this so that we can return estimates in the original (unsorted) order
         reverse_idxs = np.argsort(idxs)
@@ -220,21 +220,17 @@ class Subtractr(pl.LightningModule):
         if use_auto_batch_size:
             batch_size = self.hparams['num_traces_per_expt']
         if batch_size == -1:
-            out = _forward(traces)
+            out = _forward(traces[None,:,:])
         else:
             out = np.zeros_like(traces)
-            num_traces = traces.shape[0]
-            start_idxs = np.arange(0, num_traces, batch_size)
-            for idx in start_idxs:
+            num_complete_batches = traces.shape[0] // batch_size
+            max_index = num_complete_batches * batch_size
+            folded_traces = traces[:max_index].reshape(num_complete_batches, batch_size, traces.shape[1])
+            out[:max_index] = _forward(folded_traces).reshape(num_complete_batches * batch_size, traces.shape[1])
 
-                # stop instead of running on incomplete batch
-                if idx+batch_size >= num_traces:
-                    break
-                out[idx:idx+batch_size] = _forward(traces[idx:idx+batch_size])
-            
-            # Run forward on the last batch, in case the number of traces is not
-            # divisible by the batch size
-            out[-batch_size:] = _forward(traces[-batch_size:])
+            # re-run on last batch, in case the number of traces is not divisible by the batch size
+            if traces.shape[0] % batch_size != 0:
+                out[-batch_size:] = _forward(traces[-batch_size:][None,...])
 
 
         t2 = time.time()
