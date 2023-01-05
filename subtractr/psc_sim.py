@@ -116,12 +116,11 @@ if __name__ == "__main__":
     keys = jrand.split(key, num=20)
 
     # fold in args before vmap
-    _sample_pscs_partial = partial(_sample_pscs_single_trace, trial_dur=900, gp_scale=0.045, delta_lower=160,
+    _sample_pscs_partial = partial(_sample_pscs_single_trace, trial_dur=900, delta_lower=160,
                                        delta_upper=400, next_delta_lower=400, next_delta_upper=899,
                                        prev_delta_upper=150, tau_diff_lower=tau_diff_lower,
                                        tau_diff_upper=tau_diff_upper, tau_r_lower=tau_r_lower,
-                                       tau_r_upper=tau_r_upper, noise_std_lower=0.001,
-                                       noise_std_upper=0.02, gp_lengthscale=45)
+                                       tau_r_upper=tau_r_upper,)
     sample_pscs_batch = vmap(_sample_pscs_partial)
 
     inputs, targets = sample_pscs_batch(keys)
