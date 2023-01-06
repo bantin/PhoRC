@@ -291,7 +291,9 @@ class Subtractr(pl.LightningModule):
             time_zero_idx=200,
             normalize_type=args.normalize_type,
             iid_noise_std_min=args.iid_noise_std_min,
-            iid_noise_std_max=args.iid_noise_std_max))
+            iid_noise_std_max=args.iid_noise_std_max,
+            gp_scale_min=args.gp_scale_min,
+            gp_scale_max=args.gp_scale_max,))
 
         # Since low-pass filters are not yet implemented in jax, we
         # do this as a postprocessing step
