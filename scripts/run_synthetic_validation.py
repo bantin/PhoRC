@@ -78,4 +78,4 @@ for i, frac in enumerate(pc_fracs):
                 'inputs': inputs, 'true_pscs': true_pscs}
             df = pd.concat([df, new_row], ignore_index=True)
 
-df.to_csv('synthetic_validation.csv', index=False, compression='gzip')
+df.to_pickle('synthetic_validation.pkl', compression={'method': 'gzip', 'compresslevel': 1})
