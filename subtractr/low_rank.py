@@ -50,7 +50,11 @@ def _nmu_estimate_with_baseline(pscs, stim_start=100, stim_end=200):
     # subtract baseline off of the pscs
     pscs_truncated -= mu
 
-    V_post = np.linalg.lstsq(U_stim, pscs_truncated)[0]
+    # In one dimension, nonneg least squares can be solved by
+    # solving the unconstrained problem and projecting onto the
+    # nonnegative orthant.
+    V_post = np.linalg.lstsq(U_stim, pscs_truncated, rcond=None)[0]
+    V_post = np.maximum(V_post, 0)
 
     # run temporal waveform through monotone decay filter
     # to avoid picking up effects from the following trial
@@ -150,25 +154,38 @@ def estimate_photocurrents(pscs, I, rank=1,
 
     return U, V
 
-def estimate_photocurrents_baseline(pscs, I, rank=1,
-        separate_by_power=True, stim_start=100, stim_end=200,
-        stepwise_constrain_V=True):
+def estimate_photocurrents_baseline(traces, rank=1, stim_start=100, stim_end=200, batch_size=-1):
     assert rank == 1, "Only rank-1 implemented with baseline"
-
-    if separate_by_power:
-        est = np.zeros_like(pscs)
-        powers = np.unique(I)
-        for power in powers:
-            these_trials = (I == power)
-            U, V = _nmu_estimate_with_baseline(pscs[these_trials],
-                stim_start=stim_start,
-                stim_end=stim_end)
-            est[these_trials] = U @ V
-        return est
-    else:
-        U, V = _nmu_estimate_with_baseline(pscs,
+    print(batch_size)
+    def _make_estimate(pscs, stim_start, stim_end):
+        U, V = _nmu_estimate_with_baseline(
+            pscs,
             stim_start=stim_start,
             stim_end=stim_end
-            )
-        est = U @ V
-        return est
+        )
+        return U @ V
+
+    # sort traces by magnitude around stim
+    idxs = np.argsort(np.linalg.norm(traces[:, stim_start:stim_end+50], axis=-1))
+        
+    # save this so that we can return estimates in the original (unsorted) order
+    reverse_idxs = np.argsort(idxs)
+    traces = traces[idxs]
+
+    if batch_size == -1:
+        est = _make_estimate(
+            traces, stim_start, stim_end
+        )
+    else:
+        est = np.zeros_like(traces)
+        num_complete_batches = traces.shape[0] // batch_size
+        max_index = num_complete_batches * batch_size
+        folded_traces = traces[:max_index].reshape(num_complete_batches, batch_size, traces.shape[1])
+        est[:max_index] = np.concatenate([_make_estimate(x, stim_start, stim_end) for x in folded_traces], axis=0)
+
+        # re-run on last batch, in case the number of traces is not divisible by the batch size
+        if traces.shape[0] % batch_size != 0:
+            est[-batch_size:] = _make_estimate(traces[-batch_size:])
+
+    est = est[reverse_idxs]
+    return est

@@ -21,7 +21,6 @@ if __name__ == "__main__":
         default='../../circuit_mapping/demixers/nwd_ee_ChroME1.ckpt')
     parser.add_argument('--dataset_path', type=str,
         default='../data/masato/B6WT_AAV_hsyn_chrome2f_gcamp8/preprocessed/220308_B6_Chrome2fGC8_030822_Cell2_opsPositive_A_planes_cmReformat.mat')
-    parser.add_argument('--results_path', type=str)
     parser.add_argument('--subtraction_method', type=str, default='network')
 
     # option to run demixer on raw traces before subtraction
@@ -83,6 +82,7 @@ if __name__ == "__main__":
         results = utils.run_subtraction_pipeline(
             pscs, powers, targets, stim_mat, 
             args.demixer_checkpoint,
+            batch_size=100,
         )
 
     # add maps and tensors for plotting
