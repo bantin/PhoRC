@@ -151,41 +151,23 @@ def run_subtraction_pipeline(pscs, powers, targets, stim, demixer_checkpoint, no
     if no_op:
         est = np.zeros_like(pscs)
     else:
-        est = low_rank.estimate_photocurrents_baseline(pscs, powers, **run_kwargs)
+        est = low_rank.estimate_photocurrents_by_batches(pscs, **run_kwargs)
     subtracted = pscs - est
 
     # load demixer checkpoint and demix
     demixer = NeuralDemixer(path=demixer_checkpoint, device='cpu')
     demixed = util.denoise_pscs_in_batches(subtracted, demixer)
 
-    # convert to tensors for easier plotting
-    raw_pscs_tensor = util.make_psc_tensor_multispot(pscs, powers, targets, stim)
-    est_pscs_tensor = util.make_psc_tensor_multispot(est, powers, targets, stim)
-    subtracted_pscs_tensor = util.make_psc_tensor_multispot(subtracted, powers, targets, stim)
-    demixed_pscs_tensor = util.make_psc_tensor_multispot(demixed, powers, targets, stim)
-
-    # make plot of spatial maps
-    mean_map = traces_tensor_to_map(raw_pscs_tensor)
-    mean_map_subtracted = traces_tensor_to_map(subtracted_pscs_tensor)
-    mean_map_demixed = traces_tensor_to_map(demixed_pscs_tensor)
-
     return dict(
-        # return traces matrices
-        raw_matrix=pscs,
-        est_matrix=est,
-        subtracted_matrix=subtracted,
-        demixed_matrix=demixed,
-        
-        # return traces tensors
-        raw_tensor=raw_pscs_tensor,
-        est_tensor=est_pscs_tensor,
-        subtracted_tensor=subtracted_pscs_tensor,
-        demixed_tensor=demixed_pscs_tensor,
-        # return grid maps
-        raw_map=mean_map,
-        subtracted_map=mean_map_subtracted,
-        demixed_map=mean_map_demixed
+        stim_mat=stim,
+        powers=powers, 
+        targets=targets,
 
+        # return traces matrices
+        raw=pscs,
+        est=est,
+        subtracted=subtracted,
+        demixed=demixed,
     )
 
 def add_grid_results(results):

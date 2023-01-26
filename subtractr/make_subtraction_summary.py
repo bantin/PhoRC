@@ -83,6 +83,9 @@ if __name__ == "__main__":
             pscs, powers, targets, stim_mat, 
             args.demixer_checkpoint,
             batch_size=100,
+            rank=2,
+            baseline=True,
+            constrain_V=True,
         )
 
     # add maps and tensors for plotting
@@ -135,7 +138,7 @@ if __name__ == "__main__":
         # cbar_labels=['EPSQ (nC)'],
         # zlabels=['subtr', 'demix'],
         # map_names=['raw', 'subtr', 'demix'],
-        # vranges=[(0,15), (0,15), (0,15), (0,15)],
+        vranges=[(0,15), (0,15), (0,15), (0,15)],
         powers=np.unique(results['powers']),
         show_powers=(True, True, True, True)
     )
