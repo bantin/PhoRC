@@ -65,11 +65,12 @@ def _rank_one_nmu(traces, init_factors,
         None
     )
 
-    R = jnp.maximum(0, traces - U @ V)
     Gamma = jnp.zeros_like(traces)
     beta = jnp.zeros((traces.shape[0], 1)) # baseline term
     if baseline:
         beta = jnp.mean(traces, axis=-1, keepdims=True)
+        V = V.at[:, 0:stim_start].set(0)
+    R = jnp.maximum(0, traces - U @ V)
     U_old = U.copy() + 10 * tol
     V_old = V.copy() + 10 * tol
     k = 0
@@ -113,6 +114,7 @@ def _rank_one_nmu(traces, init_factors,
             V = (U.T @ M) / (U.T @ U + 1e-10)
             V = jnp.maximum(0, V)
         if baseline:
+            V = V.at[:, 0:stim_start].set(0)
             beta = jnp.sum(1 / rho * Gamma + traces - U @ V - R, axis=-1, keepdims=True) / traces.shape[1]
             beta = jnp.maximum(0, beta)
 
