@@ -15,7 +15,7 @@ import jax.numpy as jnp
 import jax.random as jrand
 import glob
 from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor
-
+from collections import namedtuple
 import subtractr.photocurrent_sim as photocurrent_sim
 import subtractr.backbones as backbones
 
@@ -50,11 +50,16 @@ class Subtractr(pl.LightningModule):
         parser.add_argument('--pc_scale_max', type=float, default=2.0)
         parser.add_argument('--psc_scale_min', type=float, default=0.01)
         parser.add_argument('--psc_scale_max', type=float, default=0.5) 
+        parser.add_argument('--prev_mode_probs', nargs=4, type=float, default=(0.5, 0.4, 0.05, 0.05))
+        parser.add_argument('--next_mode_probs', nargs=4, type=float, default=(0.5, 0.4, 0.05, 0.05))
+        parser.add_argument('--mode_probs', nargs=4, type=float, default=(0.5, 0.4, 0.05, 0.05))
 
         parser.add_argument('--gp_scale_min', type=float, default=0.01)
         parser.add_argument('--gp_scale_max', type=float, default=0.045)
         parser.add_argument('--iid_noise_std_min', type=float, default=0.001)
         parser.add_argument('--iid_noise_std_max', type=float, default=0.02)
+        parser.add_argument('--min_prev_pc_fraction', type=float, default=0.1)
+        parser.add_argument('--max_prev_pc_fraction', type=float, default=0.9)
         parser.add_argument('--min_pc_fraction', type=float, default=0.5)
         parser.add_argument('--max_pc_fraction', type=float, default=1.0)
         parser.add_argument('--gp_lengthscale', type=float, default=45.0)
@@ -253,6 +258,8 @@ class Subtractr(pl.LightningModule):
             tau_r_max=args.tau_r_max,
         )
 
+        
+
         psc_shape_params = dict(
             tau_r_lower = 10,
             tau_r_upper = 40,
@@ -263,10 +270,19 @@ class Subtractr(pl.LightningModule):
             next_delta_lower=400,
             next_delta_upper=899,
             prev_delta_upper=150,
+            prev_mode_probs=tuple(args.prev_mode_probs),
+            mode_probs=tuple(args.mode_probs),
+            next_mode_probs=tuple(args.next_mode_probs),
             amplitude_lower=args.psc_scale_min,
             amplitude_upper=args.psc_scale_max,
         )
 
+        # Use named tuples instead of dicts for hashability
+        # pscparam = namedtuple('pscparam', psc_shape_params)
+        # psc_shape_params = pscparam(**psc_shape_params)
+        # pcparam = namedtuple('pcparam', pc_shape_params)
+        # pc_shape_params = pcparam(**pc_shape_params)
+        
         key = jrand.PRNGKey(0)
         keys = iter(jrand.split(key, num=2))
 
@@ -280,15 +296,17 @@ class Subtractr(pl.LightningModule):
             max_pc_scale=args.pc_scale_max,
             min_pc_fraction=args.min_pc_fraction,
             max_pc_fraction=args.max_pc_fraction,
+            min_prev_pc_fraction=args.min_prev_pc_fraction,
+            max_prev_pc_fraction=args.max_prev_pc_fraction,
             add_target_gp=args.add_target_gp,
             target_gp_lengthscale=args.target_gp_lengthscale,
             target_gp_scale=args.target_gp_scale,
             linear_onset_frac=args.linear_onset_frac,
             msecs_per_sample=0.05,
             stim_start=5.0,
-            tstart=-10.0,
+            tstart=-30.0,
             tend=47.0,
-            time_zero_idx=200,
+            time_zero_idx=600,
             normalize_type=args.normalize_type,
             iid_noise_std_min=args.iid_noise_std_min,
             iid_noise_std_max=args.iid_noise_std_max,

@@ -2,6 +2,7 @@ import jax.numpy as jnp
 import jax.random as jrand
 import subtractr.photocurrent_sim as photocurrent_sim
 
+import jax
 from jax import vmap, jit
 from functools import partial
 
@@ -41,7 +42,7 @@ def _sample_psc_kernel(key, trial_dur=900, tau_r_lower=10, tau_r_upper=80, tau_d
     return pscs/max_vec * amplitude
 
 
-@partial(jit, static_argnames=('trial_dur', 'mode_probs', 'prev_mode_probs', 'next_mode_probs',))
+@partial(jit, static_argnames=('trial_dur',))
 def _sample_pscs_single_trace(key, trial_dur=900, size=1000, training_fraction=0.9, lp_cutoff=500,
                               srate=20000, tau_r_lower=10, tau_r_upper=80, tau_diff_lower=2, tau_diff_upper=150,
                               delta_lower=160, delta_upper=400, next_delta_lower=400, next_delta_upper=899,
@@ -50,18 +51,15 @@ def _sample_pscs_single_trace(key, trial_dur=900, size=1000, training_fraction=0
                               mode_probs=None, prev_mode_probs=None, next_mode_probs=None,
                               max_modes=4):
 
-    if mode_probs is None:
-        mode_probs = jnp.array([0.4, 0.4, 0.1, 0.1])
-    else:
-        mode_probs = jnp.array(mode_probs)
-    if prev_mode_probs is None:
-        prev_mode_probs = jnp.array([0.5, 0.4, 0.05, 0.05])
-    else:
-        prev_mode_probs = jnp.array(prev_mode_probs)
-    if next_mode_probs is None:
-        next_mode_probs = jnp.array([0.5, 0.4, 0.05, 0.05])
-    else:
-        next_mode_probs = jnp.array(next_mode_probs)
+    mode_probs = jax.lax.cond(
+        mode_probs is None, lambda _: jnp.array([0.4, 0.4, 0.1, 0.1]), lambda x: jnp.array(x), mode_probs
+    )
+    prev_mode_probs = jax.lax.cond(
+        prev_mode_probs is None, lambda _: jnp.array([0.5, 0.4, 0.05, 0.05]), lambda x: jnp.array(x), prev_mode_probs
+    )
+    next_mode_probs = jax.lax.cond(
+        next_mode_probs is None, lambda _: jnp.array([0.5, 0.4, 0.05, 0.05]), lambda x: jnp.array(x), next_mode_probs
+    )
     
 
     keys = iter(jrand.split(key, num=10))

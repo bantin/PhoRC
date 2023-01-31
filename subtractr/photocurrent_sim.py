@@ -380,7 +380,7 @@ def sample_jittered_photocurrent_shapes(
         onset_latency_ms=0.2,
         msecs_per_sample=0.05,
         stim_start=5.0,
-        tstart=-10.0,
+        tstart=-30.0,
         tend=45.0,
         time_zero_idx: int = 200,
         pc_shape_params=None,
@@ -401,8 +401,8 @@ def sample_jittered_photocurrent_shapes(
             next(keys),
             num_traces=num_traces,
             **pc_shape_params,
-            t_on_min=-7.0 + onset_latency_ms, t_on_max=-7.0 + onset_latency_ms + onset_jitter_ms,
-            t_off_min=-2.0 + onset_latency_ms, t_off_max=-2.0 + onset_latency_ms + onset_jitter_ms,
+            t_on_min=-28.0 + onset_latency_ms, t_on_max=-28.0 + onset_latency_ms + onset_jitter_ms,
+            t_off_min=-23.0 + onset_latency_ms, t_off_max=-23.0 + onset_latency_ms + onset_jitter_ms,
         )
 
     curr_pc_params = _sample_photocurrent_params_hierarchical(
@@ -482,7 +482,7 @@ def sample_photocurrent_experiment(
     stim_start=5.0,
     tstart=-10.0,
     tend=45.0,
-    time_zero_idx=200,
+    time_zero_idx=600,
     gp_lengthscale_min=20, 
     gp_lengthscale_max=60,
     gp_scale_min=0.01,
@@ -626,9 +626,9 @@ if __name__ == "__main__":
         linear_onset_frac=0.5,
         msecs_per_sample=0.05,
         stim_start=5.0,
-        tstart=-10.0,
+        tstart=-30.0,
         tend=47.0,
-        time_zero_idx=200,
+        time_zero_idx=600,
         iid_noise_std_min=0.001,
         iid_noise_std_max=0.02))
     inputs, targets = sampler_func(keys)
