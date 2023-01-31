@@ -19,7 +19,8 @@ def _svd_init(traces):
 
 def _rank_one_nmu(traces, init_factors,
     update_U=True, update_V=True, 
-    baseline=False, maxiter=5000, tol=1e-2, rho=2.0,):
+    baseline=False, stim_start=100, 
+    maxiter=5000, tol=1e-2, rho=2.0,):
     """Non-negative matrix underapproximation with rank 1 using ADMM
 
     Init factors must be passed as a tuple of U and V matrices, due to the way JAX handles
@@ -44,6 +45,17 @@ def _rank_one_nmu(traces, init_factors,
     init_factors : tuple of array-like
         Initial U and V matrices. Shape is (n_traces, rank) and (rank, n_timepoints).
         If None, initialize using SVD.
+
+    Returns
+    -------
+    U : array-like
+        U matrix. Shape is (n_traces, rank).
+    V : array-like
+        V matrix. Shape is (rank, n_timepoints).
+    beta : array-like
+        Baseline term. Shape is (n_traces, 1).
+    max_violation : array-like
+        Maximum violation of non-underapprox constraint at each iteration.
     """  
     U, V = init_factors
     U, V = jax.lax.cond(
@@ -117,12 +129,12 @@ def _rank_one_nmu(traces, init_factors,
     )
     (U, V, U_old, V_old, R, Gamma, k, max_violation, beta) = val
 
-    return U, V, max_violation, beta
+    return U, V, beta, max_violation
 
 
 # @partial(jit, static_argnames=('update_U', 'update_V'))
 def _nmu(traces, init_factors, update_U=True, update_V=True,
-        rank=1, baseline=False, **kwargs):
+        rank=1, baseline=False, stim_start=100, **kwargs):
     """Non-negative matrix underapproximation, solved recursively by updating rank-1 factors.
 
     Parameters
@@ -155,17 +167,20 @@ def _nmu(traces, init_factors, update_U=True, update_V=True,
         Estimated U matrix. Shape is (n_traces, rank).
     V : array-like
         Estimated V matrix. Shape is (rank, n_timepoints).
+    beta : array-like
+        Estimated baseline term. Shape is (n_traces, 1).
     """
     U, V = init_factors
     N, rank = U.shape
 
     # run the first component separately to possibly allow for a baseline term
-    U_0, V_0, _, beta = _rank_one_nmu(
+    U_0, V_0, beta, _, = _rank_one_nmu(
         traces,
         (U[:, 0:1], V[0:1, :]),
         update_U=update_U,
         update_V=update_V,
         baseline=baseline,
+        stim_start=stim_start,
         **kwargs,
     )   
     traces = traces - U_0 @ V_0 - beta
@@ -205,7 +220,7 @@ def _nmu(traces, init_factors, update_U=True, update_V=True,
     )
     U = jnp.concatenate((U_0, U_transpose.T), axis=1)
     V = jnp.concatenate((V_0, V), axis=0)
-    return U, V
+    return U, V, beta
 
 @partial(jit, static_argnames=('constrain_V', 'rank', 'stim_start', 'stim_end', 'baseline'))
 def estimate_photocurrents_nmu(traces, 
@@ -231,34 +246,67 @@ def estimate_photocurrents_nmu(traces,
         Estimated U matrix. Shape is (n_traces, rank).
     V : array-like
         Estimated V matrix. Shape is (rank, n_timepoints).
+    beta : array-like
+        Estimated baseline term. Shape is (n_traces, 1).
     """
     # Create dummy initial factors
     # to use SVD initialization inside _rank_one_nmu
     U_init = jnp.zeros((traces.shape[0], rank)) * jnp.nan
-    V_init = jnp.zeros((rank, stim_end - stim_start)) * jnp.nan
     traces = jnp.maximum(0, traces)
     if baseline:
         start_idx = 0
     else:
         start_idx = stim_start
+    V_init = jnp.zeros((rank, stim_end - start_idx)) * jnp.nan
     
-    U_stim, V_stim = _nmu(traces[:, stim_start:stim_end], (U_init, V_init), 
-        rank=rank, update_U=True, update_V=True, baseline=baseline)
+    U_stim, V_stim, beta = _nmu(traces[:, start_idx:stim_end], (U_init, V_init), 
+        rank=rank, update_U=True, update_V=True, baseline=baseline, stim_start=stim_start)
     
-    V_full = jnp.linalg.lstsq(U_stim, traces)[0]
+    V_full = jnp.linalg.lstsq(U_stim, traces[:, stim_start:])[0]
     if constrain_V:
-        _, V_full = _nmu(traces, rank=rank, init_factors=(U_stim, V_full), update_U=False, update_V=True, baseline=False)
-    # post-hoc set everything before stim_start to 0,
-    # note that we might want to do this more intelligently later
-    V_full = V_full.at[:, :start_idx].set(0)
-    return U_stim, V_full
+        _, V_full, _ = _nmu(traces[:, stim_start:], rank=rank, init_factors=(U_stim, V_full),
+            update_U=False, update_V=True, baseline=False)
+    # pad V with zeros to account for the time before stim_start
+    V_full = jnp.concatenate((jnp.zeros((rank, stim_start)), V_full), axis=1)
+    return U_stim, V_full, beta
 
 def estimate_photocurrents_by_batches(traces,
                            rank=1, constrain_V=True, baseline=False,
-                           stim_start=100, stim_end=200, batch_size=-1):
+                           stim_start=100, stim_end=200, batch_size=-1,
+                           subtract_baseline=True):
+    """Estimate photocurrents using non-negative matrix underapproximation.
 
+    Parameters
+    ----------
+    traces : array-like
+        Traces to estimate photocurrents from. Shape is (n_traces, n_timepoints).
+    rank : int
+        Rank of the estimated matrix.
+    constrain_V : bool
+        If True, constrain the estimated V using the underapprox constraint.
+    baseline : bool
+        If True, estimate a baseline term.
+    stim_start : int
+        Index of first timepoint of stimulus.
+    stim_end : int
+        Index of last timepoint of stimulus.
+    batch_size : int
+        Number of traces to process in each batch. If -1, process all traces
+        at once.
+    subtract_baseline : bool
+        If True, subtract the baseline from the traces in estimate
+    
+    Returns
+    -------
+    U : array-like
+        Estimated U matrix. Shape is (n_traces, rank).
+    V : array-like
+        Estimated V matrix. Shape is (rank, n_timepoints).
+    beta : array-like
+        Estimated baseline term. Shape is (n_traces, 1).
+    """
     def _make_estimate(pscs, stim_start=100, stim_end=200):
-        U, V = estimate_photocurrents_nmu(
+        U, V, beta = estimate_photocurrents_nmu(
             pscs,
             rank=rank,
             stim_start=stim_start,
@@ -266,7 +314,7 @@ def estimate_photocurrents_by_batches(traces,
             constrain_V=constrain_V,
             baseline=baseline,
         )
-        return U @ V
+        return U @ V + beta
 
     # sort traces by magnitude around stim
     idxs = np.argsort(np.linalg.norm(

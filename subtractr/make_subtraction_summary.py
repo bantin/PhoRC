@@ -23,6 +23,20 @@ if __name__ == "__main__":
         default='../data/masato/B6WT_AAV_hsyn_chrome2f_gcamp8/preprocessed/220308_B6_Chrome2fGC8_030822_Cell2_opsPositive_A_planes_cmReformat.mat')
     parser.add_argument('--subtraction_method', type=str, default='network')
 
+    # arguments used for the low-rank subtraction, if the subtraction_method is
+    # 'network' these arguments are ignored
+    parser.add_argument('--stim_start_idx', type=int, default=100)
+    parser.add_argument('--stim_end_idx', type=int, default=200)
+    parser.add_argument('--rank', type=int, default=2)
+    parser.add_argument('--constrain_V', action='store_true')
+    parser.add_argument('--no_constrain_V', dest='constrain_V', action='store_false')
+    parser.set_defaults(constrain_V=True)
+    parser.add_argument('--batch_size', type=int, default=100)
+    parser.add_argument('--baseline', action='store_true')
+    parser.add_argument('--no_baseline', dest='baseline', action='store_false')
+    parser.set_defaults(baseline=True)
+
+
     # option to run demixer on raw traces before subtraction
     parser.add_argument('--show_raw_demixed', action='store_true')
     parser.add_argument('--no_show_raw_demixed', action='store_false', dest='show_raw_demixed')
@@ -82,10 +96,12 @@ if __name__ == "__main__":
         results = utils.run_subtraction_pipeline(
             pscs, powers, targets, stim_mat, 
             args.demixer_checkpoint,
-            batch_size=100,
-            rank=2,
-            baseline=True,
-            constrain_V=True,
+            stim_start=args.stim_start_idx,
+            stim_end=args.stim_end_idx,
+            rank=args.rank,
+            constrain_V=args.constrain_V,
+            batch_size=args.batch_size,
+            baseline=args.baseline,
         )
 
     # add maps and tensors for plotting
