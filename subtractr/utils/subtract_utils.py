@@ -9,7 +9,6 @@ import subtractr.low_rank as low_rank
 def traces_tensor_to_map(tensor):
     return np.nanmean(np.sum(tensor, axis=-1), axis=-1)
 
-
 def plot_subtraction_comparison(raw_tensor, est_tensors, subtracted_tensors, demixed_tensors,
         powers, colors=['red', 'blue'], sort_by='raw', num_plots_per_power=30, z_idx=None,
         ):
@@ -99,7 +98,8 @@ def plot_subtraction_comparison(raw_tensor, est_tensors, subtracted_tensors, dem
     return fig, axs
 
 
-def plot_subtraction_by_power(pscs, ests, subtracted, demixed, powers, time=None, fig_kwargs=None):
+def plot_subtraction_by_power(pscs, ests, subtracted, demixed, powers,
+        time=None, fig_kwargs=None, stim_start_ms=5, stim_end_ms=10):
 
     if fig_kwargs is None:
         fig_kwargs = dict(
@@ -137,6 +137,11 @@ def plot_subtraction_by_power(pscs, ests, subtracted, demixed, powers, time=None
         axs[i,3].set_ylim(axs[i,2].get_ylim())
         axs[i,0].set_ylabel('%d mW' % unique_powers[i])
 
+        # add vertical lines for stimulus
+        for j in range(4):
+            axs[i,j].axvline(x=stim_start_ms, color='grey', linestyle='--')
+            axs[i,j].axvline(x=stim_end_ms, color='grey', linestyle='--')
+
     labels = ['raw', 'est', 'subtracted', 'demixed']
     for i in range(4):
         axs[-1, i].set_xlabel('time (ms)')
@@ -146,20 +151,24 @@ def plot_subtraction_by_power(pscs, ests, subtracted, demixed, powers, time=None
     return fig
 
 
-def run_subtraction_pipeline(pscs, powers, targets, stim, demixer_checkpoint, no_op=False, **run_kwargs):
-    # Run subtraction on all PSCs
-    if no_op:
-        est = np.zeros_like(pscs)
+def run_preprocessing_pipeline(pscs, powers, targets, stim_mat,
+        demixer_path, subtractr_path=None, subtract_pc=False, **subtraction_kwargs):
+    if subtract_pc:
+        if subtractr_path:
+            subtractr_net = subtractr.Subtractr.load_from_checkpoint(subtractr_path)
+            est = subtractr_net(pscs)
+        else:
+            est = low_rank.estimate_photocurrents_by_batches(pscs, **subtraction_kwargs)
     else:
-        est = low_rank.estimate_photocurrents_by_batches(pscs, **run_kwargs)
-    subtracted = pscs - est
-
+        est = np.zeros_like(pscs)
+    
     # load demixer checkpoint and demix
-    demixer = NeuralDemixer(path=demixer_checkpoint, device='cpu')
+    subtracted = pscs - est
+    demixer = NeuralDemixer(path=demixer_path, device='cpu')
     demixed = util.denoise_pscs_in_batches(subtracted, demixer)
 
     return dict(
-        stim_mat=stim,
+        stim_mat=stim_mat,
         powers=powers, 
         targets=targets,
 
@@ -169,6 +178,7 @@ def run_subtraction_pipeline(pscs, powers, targets, stim, demixer_checkpoint, no
         subtracted=subtracted,
         demixed=demixed,
     )
+
 
 def add_grid_results(results):
     labels = ['raw', 'est', 'subtracted', 'demixed']
@@ -189,32 +199,6 @@ def add_grid_results(results):
         results[label + '_map'] = map
 
     return results
-
-def run_network_subtraction_pipeline(pscs, powers, targets,
-    stim, demixer_checkpoint, subtractr_net, no_op=False, run_raw_demix=False):
-    # Run subtraction on all PSCs
-    if no_op:
-        est = np.zeros_like(pscs)
-    else:
-        est = subtractr_net(pscs)
-    subtracted = pscs - est
-
-    # load demixer checkpoint and demix
-    demixer = NeuralDemixer(path=demixer_checkpoint, device='cpu')
-    demixed = util.denoise_pscs_in_batches(subtracted, demixer)
-
-    return dict(
-        stim_mat=stim,
-        powers=powers, 
-        targets=targets,
-
-        # return traces matrices
-        raw=pscs,
-        est=est,
-        subtracted=subtracted,
-        demixed=demixed,
-
-    )
 
 
 def run_subtraction_pipeline_multipulse(
