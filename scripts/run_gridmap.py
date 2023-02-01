@@ -23,23 +23,16 @@ def parse_fit_options(argseq):
         description='Opsin subtraction + CAVIaR for Grid Denoising')
     
     # caviar args
-    parser.add_argument('--run-caviar', action='store_true', default=False)
-    parser.add_argument('--minimum-spike-count', type=int, default=3)
-    parser.add_argument('--msrmp', type=float, default=0.3)
-    parser.add_argument('--iters', type=int, default=30)
-    parser.add_argument('--save-histories', action='store_true', default=False)
+    parser = utils.add_caviar_args(parser=parser)
+
+    # subtraction args
+    parser = utils.add_subtraction_args(parser=parser)
 
     # run args
     parser.add_argument('--xla-allocator-platform', action='store_true', default=False)
-    parser.add_argument('--dataset-path', type=str)
-    parser.add_argument('--demixer-checkpoint', type=str,
+    parser.add_argument('--dataset_path', type=str)
+    parser.add_argument('--demixer_path', type=str,
         default="/Users/Bantin/Documents/Columbia/Projects/2p-opto/circuit_mapping/demixers/nwd_ee_ChroME1.ckpt")
-    parser.add_argument('--subtractr-checkpoint', type=str)
-
-    # opsin subtract args
-    parser.add_argument('--subtract-pc', action='store_true', default=False)
-    parser.add_argument('--separate-by-power', action='store_true', default=False)
-    parser.add_argument('--rank', type=int, default=1)
 
     # optionally add a suffix to the saved filename, e.g to specify what arguments were used
     parser.add_argument('--file_suffix', type=str, default="")
@@ -73,20 +66,15 @@ if __name__ == "__main__":
     stim_mat = stim_mat[:,good_idxs]
     powers = powers[good_idxs]
     
-    # Optionally run photocurrent subtraction.
-    # if no_op is True, the subtraction is a no_op and the following call
-    # simply populates the results dictionary.
-    no_op = (not args.subtract_pc)
-    if not no_op:
-        print('Running opsin subtraction pipeline...')
-        subtractr_net = subtractr.Subtractr.load_from_checkpoint(args.subtractr_checkpoint)
-        results = utils.run_network_subtraction_pipeline(pscs, powers, targets, stim_mat,
-            args.demixer_checkpoint, subtractr_net, no_op=no_op)
-    else:
-        subtractr_net = None
-        results = utils.run_network_subtraction_pipeline(pscs, powers, targets, stim_mat,
-            args.demixer_checkpoint, subtractr_net, no_op=no_op)
-        
+    # Run (optional) subtraction and demixing
+    results = utils.run_preprocessing_pipeline(pscs, powers, targets, stim_mat, args.demixer_path, 
+        subtract_pc=args.subtract_pc, 
+        subtractr_path=args.subtractr_path, 
+        stim_start=args.stim_start_idx, stim_end=args.stim_end_idx,
+        rank=args.rank, constrain_V=args.constrain_V, baseline=args.baseline,
+        subtract_baseline=args.subtract_baseline,
+        batch_size=args.batch_size,)
+ 
     if args.grid:
         print('grid-data flag is set. Adding tensors and maps to results dict for plotting.')
         results = utils.add_grid_results(results)

@@ -103,8 +103,10 @@ def add_caviar_args(parser=None):
     """
     if parser is None:
         parser = argparse.ArgumentParser()
-    parser.add_argument('--run-caviar', action='store_true', default=False)
-    parser.add_argument('--minimum-spike-count', type=int, default=3)
+    parser.add_argument('--run_caviar', action='store_true', default=False)
+    parser.add_argument('--minimum_spike_count', type=int, default=3)
     parser.add_argument('--msrmp', type=float, default=0.3)
     parser.add_argument('--iters', type=int, default=30)
     parser.add_argument('--save-histories', action='store_true', default=False)
+    
+    return parser
