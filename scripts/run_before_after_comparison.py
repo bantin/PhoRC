@@ -71,6 +71,7 @@ def split_results_dict(results):
     """
     stim_mat, raw, demixed, subtracted, est, raw_demixed = results['stim_mat'], results['raw'], results[
         'demixed'], results['subtracted'], results['est'], results['raw_demixed']
+    targets = results['targets']
     unique_target_counts = np.unique(np.sum(stim_mat > 0, axis=0))
     max_target_count = unique_target_counts[-1]
     min_target_count = unique_target_counts[0]
@@ -99,6 +100,7 @@ def split_results_dict(results):
         results_new['multispot']['raw'] = raw[these_idxs]
         results_new['multispot']['raw_demixed'] = raw_demixed[these_idxs]
 
+    results_new['targets'] = targets
     return results_new
 
 
