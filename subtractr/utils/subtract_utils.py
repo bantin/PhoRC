@@ -152,7 +152,9 @@ def plot_subtraction_by_power(pscs, ests, subtracted, demixed, powers,
 
 
 def run_preprocessing_pipeline(pscs, powers, targets, stim_mat,
-        demixer_path, subtractr_path=None, subtract_pc=False, **subtraction_kwargs):
+        demixer_path, subtractr_path=None, subtract_pc=False,
+        run_raw_demixed=False,
+        **subtraction_kwargs):
     if subtract_pc:
         if subtractr_path:
             subtractr_net = subtractr.Subtractr.load_from_checkpoint(subtractr_path)
@@ -166,6 +168,23 @@ def run_preprocessing_pipeline(pscs, powers, targets, stim_mat,
     subtracted = pscs - est
     demixer = NeuralDemixer(path=demixer_path, device='cpu')
     demixed = util.denoise_pscs_in_batches(subtracted, demixer)
+
+    # If run_raw_demixed is True, run the demixer on the raw data
+    # and add to results
+    if run_raw_demixed:
+        raw_demixed = util.denoise_pscs_in_batches(pscs, demixer)
+        return dict(
+            stim_mat=stim_mat,
+            powers=powers, 
+            targets=targets,
+
+            # return traces matrices
+            raw=pscs,
+            est=est,
+            subtracted=subtracted,
+            demixed=demixed,
+            raw_demixed=raw_demixed,
+        )
 
     return dict(
         stim_mat=stim_mat,
