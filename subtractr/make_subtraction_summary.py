@@ -1,5 +1,4 @@
 import argparse
-from multiprocessing.sharedctypes import Value
 from circuitmap import NeuralDemixer
 from pc_subtractr_network import Subtractr
 import h5py

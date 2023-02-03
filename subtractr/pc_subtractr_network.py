@@ -277,12 +277,6 @@ class Subtractr(pl.LightningModule):
             amplitude_upper=args.psc_scale_max,
         )
 
-        # Use named tuples instead of dicts for hashability
-        # pscparam = namedtuple('pscparam', psc_shape_params)
-        # psc_shape_params = pscparam(**psc_shape_params)
-        # pcparam = namedtuple('pcparam', pc_shape_params)
-        # pc_shape_params = pcparam(**pc_shape_params)
-        
         key = jrand.PRNGKey(0)
         keys = iter(jrand.split(key, num=2))
 
