@@ -75,6 +75,11 @@ def add_subtraction_args(parser=None):
     parser.add_argument('--no_subtract_baseline', dest='subtract_baseline', action='store_false')
     parser.set_defaults(baseline=True)
 
+    # whether we fit an extended baseline using PAVA/OASIS
+    parser.add_argument('--extended_baseline', action='store_true')
+    parser.add_argument('--no_extended_baseline', action='store_false', dest='extended_baseline')
+    parser.set_defaults(extended_baseline=False)
+
     return parser
 
 def add_caviar_args(parser=None):
