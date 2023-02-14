@@ -38,6 +38,11 @@ if __name__ == "__main__":
     parser.add_argument('--no_use_lasso', action='store_false', dest='use_lasso')
     parser.set_defaults(use_lasso=False)
 
+    # add option for extended baseline
+    parser.add_argument('--extended_baseline', action='store_true')
+    parser.add_argument('--no_extended_baseline', action='store_false', dest='extended_baseline')
+    parser.set_defaults(extended_baseline=False)
+
     args = parser.parse_args()
 
     print(args)
@@ -71,7 +76,8 @@ if __name__ == "__main__":
         stim_start=args.stim_start_idx, stim_end=args.stim_end_idx,
         rank=args.rank, constrain_V=args.constrain_V, baseline=args.baseline,
         subtract_baseline=args.subtract_baseline,
-        batch_size=args.batch_size,)
+        batch_size=args.batch_size,
+        extended_baseline=args.extended_baseline,)
 
     # If we're working with grid data, add maps and tensors for plotting,
     # then run Lasso on raw, subtracted, and demixed (for multispot), 
