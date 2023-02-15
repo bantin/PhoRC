@@ -133,6 +133,7 @@ if __name__ == "__main__":
         baseline=args.baseline,
         subtract_baseline=args.subtract_baseline,
         batch_size=args.batch_size,
+        extended_baseline=args.extended_baseline,
     )
 
     # split the results dict into single and multi target count groups
