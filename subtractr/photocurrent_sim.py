@@ -10,7 +10,7 @@ from jax import vmap, jit
 from scipy.optimize import curve_fit
 from scipy.ndimage import gaussian_filter1d
 from functools import partial
-import matplotlib.pyplot as plt
+from typing import Union
 
 
 def monotone_decay_filter(arr, monotone_start=500):
@@ -95,7 +95,7 @@ def _photocurrent_shape(
             R_on[time_zero_idx:time_zero_idx + window_len],
             R_off[time_zero_idx:time_zero_idx + window_len])
 
-photocurrent_shape = jax.jit(_photocurrent_shape, static_argnames=('time_zero_idx'))
+photocurrent_shape = jax.jit(_photocurrent_shape, static_argnames=('time_zero_idx', 'window_len', 'msecs_per_sample', 'conv_window_len'))
 
 def _sample_photocurrent_params(
     key,
@@ -375,20 +375,21 @@ def sample_from_templates(
 
 
 def sample_jittered_photocurrent_shapes(
-        key, num_traces,
-        onset_jitter_ms=2.0,
-        onset_latency_ms=0.2,
-        msecs_per_sample=0.05,
-        stim_start=5.0,
-        tstart=-30.0,
-        tend=45.0,
-        time_zero_idx: int = 200,
-        pc_shape_params=None,
-        linear_onset_frac=0.5,
-        add_target_gp=True,
-        target_gp_lengthscale=50,
-        target_gp_scale=0.01,
-        monotone_filter_start=300,
+        key : jax.random.PRNGKey, 
+        num_traces: int,
+        onset_jitter_ms: float = 2.0,
+        onset_latency_ms: float = 0.2,
+        msecs_per_sample: float = 0.05,
+        stim_start: float = 5.0,
+        stim_end: float = 10.0,
+        isi_ms: float = 33,
+        window_len_ms: float = 45,
+        pc_shape_params: Union[dict, None] = None,
+        linear_onset_frac: float = 0.5,
+        add_target_gp: float = True,
+        target_gp_lengthscale: float = 50,
+        target_gp_scale: float = 0.01,
+        monotone_filter_start: float = 300,
     ):
     keys = iter(jrand.split(key, num=10))
     if pc_shape_params is None:
@@ -401,37 +402,49 @@ def sample_jittered_photocurrent_shapes(
             next(keys),
             num_traces=num_traces,
             **pc_shape_params,
-            t_on_min=-28.0 + onset_latency_ms, t_on_max=-28.0 + onset_latency_ms + onset_jitter_ms,
-            t_off_min=-23.0 + onset_latency_ms, t_off_max=-23.0 + onset_latency_ms + onset_jitter_ms,
+            # t_on_min=-28.0 + onset_latency_ms, t_on_max=-28.0 + onset_latency_ms + onset_jitter_ms,
+            # t_off_min=-23.0 + onset_latency_ms, t_off_max=-23.0 + onset_latency_ms + onset_jitter_ms,
+            t_on_min = stim_start - isi_ms + onset_latency_ms, t_on_max = stim_start - isi_ms + onset_latency_ms + onset_jitter_ms,
+            t_off_min = stim_end - isi_ms + onset_latency_ms, t_off_max = stim_end - isi_ms + onset_latency_ms + onset_jitter_ms,
+
         )
 
     curr_pc_params = _sample_photocurrent_params_hierarchical(
             next(keys),
             num_traces=num_traces,
             **pc_shape_params,
-            t_on_min=5.0 + onset_latency_ms, t_on_max=5.0 + onset_latency_ms + onset_jitter_ms,
-            t_off_min=10.0 + onset_latency_ms, t_off_max=10.0 + onset_latency_ms + onset_jitter_ms,
+            # t_on_min=5.0 + onset_latency_ms, t_on_max=5.0 + onset_latency_ms + onset_jitter_ms,
+            # t_off_min=10.0 + onset_latency_ms, t_off_max=10.0 + onset_latency_ms + onset_jitter_ms,
+            t_on_min = stim_start + onset_latency_ms, t_on_max = stim_start + onset_latency_ms + onset_jitter_ms,
+            t_off_min = stim_end + onset_latency_ms, t_off_max = stim_end + onset_latency_ms + onset_jitter_ms,
         )
 
     next_pc_params = _sample_photocurrent_params_hierarchical(
             next(keys),
             num_traces=num_traces,
             **pc_shape_params,
-            t_on_min=38.0 + onset_latency_ms, t_on_max=38.0 + onset_latency_ms + onset_jitter_ms,
-            t_off_min=43.0 + onset_latency_ms, t_off_max=43.0 + onset_latency_ms + onset_jitter_ms,
+            # t_on_min=38.0 + onset_latency_ms, t_on_max=38.0 + onset_latency_ms + onset_jitter_ms,
+            # t_off_min=43.0 + onset_latency_ms, t_off_max=43.0 + onset_latency_ms + onset_jitter_ms,
+            t_on_min = stim_start + isi_ms + onset_latency_ms, t_on_max = stim_start + isi_ms + onset_latency_ms + onset_jitter_ms,
+            t_off_min = stim_end + isi_ms + onset_latency_ms, t_off_max = stim_end + isi_ms + onset_latency_ms + onset_jitter_ms,
         )
     
     # form boolean for each trace deciding whether to use linear onset
     linear_onset = jrand.uniform(key) > linear_onset_frac
 
-    # Note that we simulate using a longer window than we'll eventually use.
+    # Note that we simulate using a longer window than we'll eventually use. This allows us to compute the previous and next trial shapes
+    # time = jnp.arange(tstart / msecs_per_sample, tend / msecs_per_sample) * msecs_per_sample
+    tstart = stim_start - isi_ms - 5
+    tend = jnp.maximum(stim_end + isi_ms, window_len_ms).item() + 5 
     time = jnp.arange(tstart / msecs_per_sample, tend / msecs_per_sample) * msecs_per_sample
+    time_zero_idx = int(-tstart / msecs_per_sample)
     batched_photocurrent_shape = vmap(
         partial(
             photocurrent_shape,
             linear_onset=linear_onset,
             t=time,
             time_zero_idx=time_zero_idx,
+            window_len=int(window_len_ms / msecs_per_sample),
         ),
         # in_axes=(0, 0, 0, 0, 0, 0, 0, 0)
     )
