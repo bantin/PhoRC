@@ -15,11 +15,11 @@ from circuitmap.simulation import simulate_continuous_experiment
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--connection_prob')
-    parser.add_argument('--spont_rate')
-    parser.add_argument('--ntars')
-    parser.add_argument('--token')
-    parser.add_argument('--save_path')
+    parser.add_argument('--connection_prob', default=0.1)
+    parser.add_argument('--spont_rate', default=0.1)
+    parser.add_argument('--ntars', default=10)
+    parser.add_argument('--token', default='')
+    parser.add_argument('--save_path', default='./')
     parser.add_argument('--n_sims_per_freq', default=10, type=int)
 
     # add photocurrent shape parameters
@@ -46,24 +46,21 @@ if __name__ == '__main__':
     parser.add_argument('--stim_freq_min', type=float, default=10)
     parser.add_argument('--stim_freq_max', type=float, default=50)
     parser.add_argument('--stim_freq_step', type=float, default=10)
+    parser.add_argument('--num_trials_per_freq', type=int, default=1)
 
     # add subtraction parameters
-    parser = utils.add_subtraction_args(parser)
+    parser = add_subtraction_args(parser)
     args = parser.parse_args()
 
     ntars = int(args.ntars)
     spont_rate = float(args.spont_rate)
     connection_prob = float(args.connection_prob)
-    stim_freq = float(args.stim_freq)
     token = args.token
-    n_sims = int(args.n_sims)
 
     N = 300
     nreps = 1
     trials = 2000
     sampling_freq = 20000
-    demix = NeuralDemixer(path=args.demixer, device='cpu')
-    expt_len = int(np.ceil(trials/stim_freq) * sampling_freq)
     ground_truth_eval_batch_size = 100
 
     results = {}
@@ -74,19 +71,23 @@ if __name__ == '__main__':
     # loop over stim_freq inclusive of both max and min
     for stim_freq in np.arange(args.stim_freq_min, args.stim_freq_max + args.stim_freq_step, args.stim_freq_step):
         results['stim_freq'] = {}
-        for i in tqdm(range(n_sims), leave=True):
+        for i in tqdm(range(args.num_trials_per_freq), leave=True):
+            expt_len = int(np.ceil(trials/stim_freq) * sampling_freq)
             expt = simulate_continuous_experiment(N=N, H=ntars, nreps=nreps, spont_rate=spont_rate,
                                                 connection_prob=connection_prob, stim_freq=stim_freq, expt_len=expt_len,
                                                 ground_truth_eval_batch_size=ground_truth_eval_batch_size)
 
             # add photocurrents to the simulated experiment
+            key = jrand.fold_in(key, i)
             expt = add_photocurrents_to_expt(key, expt, stim_dur_ms=args.stim_dur_ms,
                 prior_context=args.prior_context, response_length=args.response_length,)
 
             # run subtraction
             est = subtractr.low_rank.estimate_photocurrents_by_batches(
                 expt['obs_with_photocurrents'], stim_start=args.stim_start, stim_end=args.stim_end,
-                constrain_V=args.constrain_V, batch_size=args.batch_size, extended_baseline=args.extended_baseline,)
+                constrain_V=args.constrain_V, batch_size=args.batch_size,
+                extended_baseline=args.extended_baseline,
+                rank=args.rank,)
             subtracted = expt['obs_with_photocurrents'] - est
 
             results['stim_freq']['trial_%i' % i] = {

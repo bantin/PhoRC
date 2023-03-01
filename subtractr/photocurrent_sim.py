@@ -612,6 +612,11 @@ def postprocess_photocurrent_experiment_batch(inputs, lp_cutoff=500, msecs_per_s
     out = sg.sosfiltfilt(sos, inputs, axis=-1)
     out = out.reshape(nbatch, ntrace, ntimesteps) 
     return out
+    
+def split_overlapping(trace, stim_times, prior_context, response_length):
+	"""Split trace into overlapping segments of length prior_context + response_length.
+	"""
+	return np.array([trace[st-prior_context: st+response_length-prior_context] for st in stim_times])	
 
 
 def add_photocurrents_to_expt(key, expt, pc_shape_params=None,
