@@ -4,6 +4,7 @@ import subtractr
 import circuitmap as cm
 import _pickle as cpickle  # pickle compression
 import bz2
+import os
 import jax.random as jrand
 
 from datetime import date
