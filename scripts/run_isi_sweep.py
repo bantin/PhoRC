@@ -84,7 +84,9 @@ if __name__ == '__main__':
 
             # run subtraction
             est = subtractr.low_rank.estimate_photocurrents_by_batches(
-                expt['obs_with_photocurrents'], stim_start=args.stim_start, stim_end=args.stim_end,
+                expt['obs_with_photocurrents'], 
+                stim_start=args.stim_start_idx, 
+                stim_end=args.stim_end_idx,
                 constrain_V=args.constrain_V, batch_size=args.batch_size,
                 extended_baseline=args.extended_baseline,
                 rank=args.rank,)
