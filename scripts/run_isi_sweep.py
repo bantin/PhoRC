@@ -2,6 +2,7 @@ import argparse
 import numpy as np
 import subtractr
 import circuitmap as cm
+import pandas as pd
 import _pickle as cpickle  # pickle compression
 import bz2
 import os
@@ -22,6 +23,8 @@ if __name__ == '__main__':
     parser.add_argument('--token', default='')
     parser.add_argument('--save_path', default='./')
     parser.add_argument('--n_sims_per_freq', default=10, type=int)
+    parser.add_argument('--num_neurons', default=300, type=int)
+    parser.add_argument('--num_trials', default=2000, type=int)
 
     # add photocurrent shape parameters
     parser.add_argument('--O_inf_min', type=float, default=0.3)
@@ -47,7 +50,7 @@ if __name__ == '__main__':
     parser.add_argument('--stim_freq_min', type=float, default=10)
     parser.add_argument('--stim_freq_max', type=float, default=50)
     parser.add_argument('--stim_freq_step', type=float, default=10)
-    parser.add_argument('--num_trials_per_freq', type=int, default=1)
+    parser.add_argument('--num_expts_per_freq', type=int, default=1)
 
     # add subtraction parameters
     parser = add_subtraction_args(parser)
@@ -58,23 +61,26 @@ if __name__ == '__main__':
     connection_prob = float(args.connection_prob)
     token = args.token
 
-    N = 300
     nreps = 1
-    trials = 2000
     sampling_freq = 20000
     ground_truth_eval_batch_size = 100
 
-    results = {}
+    results = pd.DataFrame(columns=['stim_freq', 'trial', 'obs_with_photocurrents', 'subtracted', 'original', 'opsin_expression'])
+    results['obs_with_photocurrents'] = results['obs_with_photocurrents'].astype(object)
+    results['subtracted'] = results['subtracted'].astype(object)
+    results['original'] = results['original'].astype(object)
+    results['opsin_expression'] = results['opsin_expression'].astype(object)
+    df_idx = 0
     
     # intialize random key
     key = jrand.PRNGKey(0)
 
     # loop over stim_freq inclusive of both max and min
+
     for stim_freq in np.arange(args.stim_freq_min, args.stim_freq_max + args.stim_freq_step, args.stim_freq_step):
-        results['stim_freq'] = {}
-        for i in tqdm(range(args.num_trials_per_freq), leave=True):
-            expt_len = int(np.ceil(trials/stim_freq) * sampling_freq)
-            expt = simulate_continuous_experiment(N=N, H=ntars, nreps=nreps, spont_rate=spont_rate,
+        for i in tqdm(range(args.num_expts_per_freq), leave=True):
+            expt_len = int(np.ceil(args.num_trials/stim_freq) * sampling_freq)
+            expt = simulate_continuous_experiment(N=args.num_neurons, H=ntars, nreps=nreps, spont_rate=spont_rate,
                                                 connection_prob=connection_prob, stim_freq=stim_freq, expt_len=expt_len,
                                                 ground_truth_eval_batch_size=ground_truth_eval_batch_size)
 
@@ -92,15 +98,19 @@ if __name__ == '__main__':
                 extended_baseline=args.extended_baseline,
                 rank=args.rank,)
             subtracted = expt['obs_with_photocurrents'] - est
+            orig_pscs = expt['obs_responses']
 
-            results['stim_freq']['trial_%i' % i] = {
-                'obs_with_photocurrents': expt['obs_with_photocurrents'],
-                'subtracted': subtracted,
-                'opsin_expression': expt['opsin_expression'],
-            }
+            # add current results to dataframe
+            results.loc[df_idx, 'stim_freq'] = stim_freq
+            results.loc[df_idx, 'trial'] = i
+            results.loc[df_idx, 'obs_with_photocurrents'] = [expt['obs_with_photocurrents']]
+            results.loc[df_idx, 'subtracted'] = [subtracted]
+            results.loc[df_idx, 'original'] = [orig_pscs]
+            results.loc[df_idx, 'opsin_expression'] = [expt['opsin_expression'][:,None]]
+            df_idx += 1
 
     outpath = os.path.join(args.save_path, 'stim_freq_sweep_N%i_K%i_ntars%i_nreps%i_connprob%.3f_spontrate%i_stimfreq%i_' % (
-        N, trials, ntars, nreps, connection_prob, spont_rate, stim_freq) + token + '_%s.pkl' % (date.today().__str__()))
+        args.num_neurons, args.num_trials, ntars, nreps, connection_prob, spont_rate, stim_freq) + token + '_%s.pkl' % (date.today().__str__()))
 
     with bz2.BZ2File(outpath, 'wb') as savefile:
         cpickle.dump(results, savefile)
