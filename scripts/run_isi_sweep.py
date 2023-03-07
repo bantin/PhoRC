@@ -43,7 +43,7 @@ if __name__ == '__main__':
     parser.add_argument('--stim_dur_ms', type=float, default=5.0)
     parser.add_argument('--prior_context', type=int, default=100)
     parser.add_argument('--pc_response_var', type=float, default=0.1)
-    parser.add_argument('--response_length', type=float, default=900)
+    parser.add_argument('--response_length', type=int, default=900)
 
 
     # parameters to sweep stim_frequency
