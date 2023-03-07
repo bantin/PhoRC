@@ -82,7 +82,7 @@ if __name__ == '__main__':
             expt_len = int(np.ceil(args.num_trials/stim_freq) * sampling_freq)
             expt = simulate_continuous_experiment(N=args.num_neurons, H=ntars, nreps=nreps, spont_rate=spont_rate,
                                                 connection_prob=connection_prob, stim_freq=stim_freq, expt_len=expt_len,
-                                                ground_truth_eval_batch_size=ground_truth_eval_batch_size)
+                                                ground_truth_eval_batch_size=ground_truth_eval_batch_size, response_length=args.response_length,)
 
             # add photocurrents to the simulated experiment
             key = jrand.fold_in(key, i)
