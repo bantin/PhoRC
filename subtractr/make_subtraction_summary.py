@@ -73,11 +73,11 @@ if __name__ == "__main__":
     results = utils.run_preprocessing_pipeline(pscs, powers, targets, stim_mat, args.demixer_path, 
         subtract_pc=args.subtract_pc, 
         subtractr_path=args.subtractr_path, 
-        stim_start=args.stim_start_idx, stim_end=args.stim_end_idx,
-        rank=args.rank, constrain_V=args.constrain_V, baseline=args.baseline,
-        subtract_baseline=args.subtract_baseline,
+        stim_start=args.stim_start_idx, 
+        stim_end=args.stim_end_idx,
+        rank=args.rank,
         batch_size=args.batch_size,
-        extended_baseline=args.extended_baseline,)
+        method=args.method,)
 
     # If we're working with grid data, add maps and tensors for plotting,
     # then run Lasso on raw, subtracted, and demixed (for multispot), 

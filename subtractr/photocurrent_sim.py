@@ -373,7 +373,7 @@ def sample_from_templates(
 
     return out
 
-
+@partial(jit, static_argnames=('num_traces', 'msecs_per_sample', 'stim_start', 'stim_end', 'isi_ms', 'window_len_ms', 'add_target_gp'))
 def sample_jittered_photocurrent_shapes(
         key : jax.random.PRNGKey, 
         num_traces: int,
@@ -434,9 +434,9 @@ def sample_jittered_photocurrent_shapes(
 
     # Note that we simulate using a longer window than we'll eventually use. This allows us to compute the previous and next trial shapes
     # time = jnp.arange(tstart / msecs_per_sample, tend / msecs_per_sample) * msecs_per_sample
-    tstart = stim_start - isi_ms - 5
-    tend = jnp.maximum(stim_end + isi_ms, window_len_ms).item() + 5 
-    time = jnp.arange(tstart / msecs_per_sample, tend / msecs_per_sample) * msecs_per_sample
+    tstart = stim_start - isi_ms - 5.0
+    tend = max(stim_end + isi_ms, window_len_ms) + 5.0 
+    time = jnp.arange(tstart, tend, msecs_per_sample)
     time_zero_idx = int(-tstart / msecs_per_sample)
     batched_photocurrent_shape = vmap(
         partial(
@@ -474,7 +474,7 @@ def sample_jittered_photocurrent_shapes(
 
 @partial(jit, static_argnames=(
     'add_target_gp', 'msecs_per_sample', 'num_traces',
-    'stim_start', 'tstart', 'tend', 'time_zero_idx', 'normalize_type'))
+    'stim_start', 'stim_end', 'isi_ms', 'window_len_ms', 'normalize_type'))
 def sample_photocurrent_experiment(
     key, num_traces=32, 
     onset_jitter_ms=1.0,
@@ -493,9 +493,9 @@ def sample_photocurrent_experiment(
     linear_onset_frac=0.5,
     msecs_per_sample=0.05,
     stim_start=5.0,
-    tstart=-10.0,
-    tend=45.0,
-    time_zero_idx=600,
+    stim_end=10.0,
+    isi_ms=33.0,
+    window_len_ms=45.0,
     gp_lengthscale_min=20, 
     gp_lengthscale_max=60,
     gp_scale_min=0.01,
@@ -541,16 +541,17 @@ def sample_photocurrent_experiment(
 				num_traces,
 				onset_jitter_ms=onset_jitter_ms,
 				onset_latency_ms=onset_latency_ms,
+                msecs_per_sample=msecs_per_sample,
 				pc_shape_params=pc_shape_params,
 				add_target_gp=add_target_gp,
 				target_gp_lengthscale=target_gp_lengthscale,
 				target_gp_scale=target_gp_scale,
 				linear_onset_frac=linear_onset_frac,
-                msecs_per_sample=msecs_per_sample,
                 stim_start=stim_start,
-                tstart=tstart,
-                tend=tend,
-                time_zero_idx=time_zero_idx,)
+                stim_end=stim_end,
+                isi_ms=isi_ms,
+                window_len_ms=window_len_ms,
+                )
     max_pc_scale = jrand.uniform(next(keys), minval=min_pc_scale, maxval=max_pc_scale)
 
     prev_pc_scales = _sample_scales(
@@ -710,9 +711,9 @@ if __name__ == "__main__":
         linear_onset_frac=0.5,
         msecs_per_sample=0.05,
         stim_start=5.0,
-        tstart=-30.0,
-        tend=47.0,
-        time_zero_idx=600,
+        stim_end=10.0,
+        isi_ms=30.0,
+        window_len_ms=45.0,
         iid_noise_std_min=0.001,
         iid_noise_std_max=0.02))
     inputs, targets = sampler_func(keys)

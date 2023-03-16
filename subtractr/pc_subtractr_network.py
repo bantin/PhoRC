@@ -93,6 +93,10 @@ class Subtractr(pl.LightningModule):
         parser.add_argument('--tau_r_max', type=float, default=29)
 
         # photocurrent timing args
+        parser.add_argument('--stim_start', type=float, default=5.0)
+        parser.add_argument('--stim_end', type=float, default=10.0)
+        parser.add_argument('--isi_ms', type=float, default=33.0)
+        parser.add_argument('--window_len_ms', type=float, default=45.0)
         parser.add_argument('--onset_jitter_ms', type=float, default=1.0)
         parser.add_argument('--onset_latency_ms', type=float, default=0.2)
 
@@ -297,10 +301,10 @@ class Subtractr(pl.LightningModule):
             target_gp_scale=args.target_gp_scale,
             linear_onset_frac=args.linear_onset_frac,
             msecs_per_sample=0.05,
-            stim_start=5.0,
-            tstart=-30.0,
-            tend=47.0,
-            time_zero_idx=600,
+            stim_start=args.stim_start,
+            stim_end=args.stim_end,
+            isi_ms=args.isi_ms,
+            window_len_ms=args.window_len_ms,
             normalize_type=args.normalize_type,
             iid_noise_std_min=args.iid_noise_std_min,
             iid_noise_std_max=args.iid_noise_std_max,
