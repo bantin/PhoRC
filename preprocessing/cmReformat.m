@@ -257,6 +257,9 @@ datawinsSortedByHolosAllPowers_LP = cell(nConditions, 1);
 minmax_window = 7000;
 gauss_window = 200;
 
+% array for storing true order of holos
+stim_sort = [];
+
 for pp = unique(ExpStruct.trialCond) % From a select Condition...
     
     this_seq_nPulses=ExpStruct.outParams.nPulses(1,pp);
@@ -291,29 +294,30 @@ for pp = unique(ExpStruct.trialCond) % From a select Condition...
     end
     
     for tt = 1:length(inputsIndices{1, pp}) % and the trials done for select power...
-        trace = ExpStruct.inputs{inputsIndices{1, pp}(tt)}; % take a whole trace from a trial (for select power)...
+%         trace = ExpStruct.inputs{inputsIndices{1, pp}(tt)}; % take a whole trace from a trial (for select power)...
 %         trace = trace-mean(trace(1:holoWin(1))); %clean it up...
-        trace = filtfilt(blp, alp, trace); % and add filter...
-        if isfield(ExpStruct,'inputsLP')
-            trace_LP=ExpStruct.inputsLP{inputsIndices{1, pp}(tt)};
-            trace_LP = filtfilt(blp, alp, trace_LP); 
-        end
-        
-        % Add detrending step
-        if exc_input
-            trace = -trace;
-        end
-        trace_smooth = smoothdata(trace, 'gaussian', gauss_window);
-        trace_min = movmin(trace_smooth, minmax_window, 1);
-        baseline = movmax(trace_min, minmax_window, 1);
-        trace = trace - baseline;
-    
-        if isfield(ExpStruct,'inputsLP')
-            trace_smooth = smoothdata(trace_LP, 'gaussian', gauss_window);
-            trace_min = movmin(trace_smooth, minmax_window, 1);
-            baseline = movmax(trace_min, minmax_window, 1);
-            trace_LP = trace_LP - baseline;
-        end
+%         trace = ExpStruct.outParams.trialHoloSeqIds{pp, 1}(:,tt);
+%         trace = filtfilt(blp, alp, trace); % and add filter...
+%         if isfield(ExpStruct,'inputsLP')
+%             trace_LP=ExpStruct.inputsLP{inputsIndices{1, pp}(tt)};
+%             trace_LP = filtfilt(blp, alp, trace_LP); 
+%         end
+%         
+%         % Add detrending step
+%         if exc_input
+%             trace = -trace;
+%         end
+%         trace_smooth = smoothdata(trace, 'gaussian', gauss_window);
+%         trace_min = movmin(trace_smooth, minmax_window, 1);
+%         baseline = movmax(trace_min, minmax_window, 1);
+%         trace = trace - baseline;
+%     
+%         if isfield(ExpStruct,'inputsLP')
+%             trace_smooth = smoothdata(trace_LP, 'gaussian', gauss_window);
+%             trace_min = movmin(trace_smooth, minmax_window, 1);
+%             baseline = movmax(trace_min, minmax_window, 1);
+%             trace_LP = trace_LP - baseline;
+%         end
 %         trace_baseline(tt,pp) = mean(trace(1:1000,:));
 %         trace_baselineSTD(tt,pp) = std(trace(1:1000,:));
         % call up hologram sequence for select trial...
@@ -348,6 +352,8 @@ for pp = unique(ExpStruct.trialCond) % From a select Condition...
             tempHoloTrace{hh, 1} = tracedataWin; %put the data windows back together this time into one array
             [~,holoSort]=sort(holoSequence'); % get the order of hologram sequence for the trial
             sortedHoloTrace = tempHoloTrace(holoSort)'; % sort the data windows in array according to the trial's hologram sequence
+            
+            
             if isfield(ExpStruct,'inputsLP')
                 tempHoloTrace_LP{hh,1}=tracedataWin_LP;
                 sortedHoloTrace_LP = tempHoloTrace_LP(holoSort)'; 
