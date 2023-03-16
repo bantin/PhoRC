@@ -129,11 +129,7 @@ if __name__ == "__main__":
         subtract_pc=True,
         run_raw_demixed=True,
         rank=args.rank,
-        constrain_V=args.constrain_V,
-        baseline=args.baseline,
-        subtract_baseline=args.subtract_baseline,
         batch_size=args.batch_size,
-        extended_baseline=args.extended_baseline,
     )
 
     # split the results dict into single and multi target count groups
