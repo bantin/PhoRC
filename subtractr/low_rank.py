@@ -693,12 +693,6 @@ def estimate_photocurrents_nmu_coordinate_descent(traces,
     # Create dummy initial factors
     # to use SVD initialization inside _rank_one_nmu
     traces = jnp.maximum(0, traces)
-#     U_init = jnp.zeros((traces.shape[0], 1)) * jnp.nan
-#     V_init = jnp.zeros((1, stim_end - stim_start)) * jnp.nan
-
-#     U_stim, V_stim, _, _ = rank_one_nmu(traces[:, stim_start:stim_end],
-#                                         (U_init, V_init), baseline=True,
-#                                         stim_start=100, update_U=True, update_V=True,)
 
     # Fit 3 terms to the very beginning of the matrix:
     # decaying baseline, constant baseline, and photocurrent
@@ -722,19 +716,22 @@ def estimate_photocurrents_nmu_coordinate_descent(traces,
     
     # Now fit photocurrent and output estimate.
     # We force our photocurrent estimate to be decreasing after dec_start
-    U_photo = U_stim[:, 1:2]
-    V_photo = jnp.linalg.lstsq(U_photo, traces[:, stim_start:])[0]
+    V_photo = jnp.zeros((rank, traces.shape[1] - stim_start))
+    for r in range(rank):
 
-    _, V_photo, _, _ = rank_one_nmu_decreasing(traces[:, stim_start:],
-                        init_factors=(U_photo, V_photo),
-                        update_U=False, update_V=True, dec_start=dec_start, gamma=gamma)
-    
-#     _, V_photo, _, _ = rank_one_nmu(traces[:, stim_start:], init_factors=(U_photo, V_photo),
-#                                     baseline=False,
-#                                    update_U=False, update_V=True)
-    
+        # offset index by 1 to account for decaying baseline
+        u_curr, v_curr = U_stim[:, r+1:r+2], V_stim[r+1:r+2, :]
+        v_photo_init = jnp.linalg.lstsq(u_curr, traces[:, stim_start:])[0]
+        _, v_photo, _, _ = rank_one_nmu_decreasing(traces[:, stim_start:],
+                            init_factors=(u_curr, v_photo_init),
+                            update_U=False, update_V=True, dec_start=dec_start, gamma=gamma)
+        V_photo = V_photo.at[r:r+1, :].set(v_photo)
+
+        # subtract away photocurrent after stim start
+        traces = traces.at[:, stim_start:].set(traces[:, stim_start:] - u_curr @ v_photo)
+        
     # pad V with zeros to account for the time before stim_start
-    V_photo = jnp.concatenate((jnp.zeros((1, stim_start)), V_photo), axis=1)
+    V_photo = jnp.concatenate((jnp.zeros((rank, stim_start)), V_photo), axis=1)
 
     # concatenate U and V to get full estimate
     U = jnp.concatenate((U_dec, U_photo), axis=1)
