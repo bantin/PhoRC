@@ -700,7 +700,7 @@ def estimate_photocurrents_nmu_coordinate_descent(traces,
         traces[:,0:stim_end],
         const_baseline=True,
         decaying_baseline=True,
-        rank=1,
+        rank=rank,
     )
     
     # The first component of U_stim, V_stim corresponds to the decaying baseline
@@ -720,7 +720,7 @@ def estimate_photocurrents_nmu_coordinate_descent(traces,
     for r in range(rank):
 
         # offset index by 1 to account for decaying baseline
-        u_curr, v_curr = U_stim[:, r+1:r+2], V_stim[r+1:r+2, :]
+        u_curr = U_stim[:, r+1:r+2]
         v_photo_init = jnp.linalg.lstsq(u_curr, traces[:, stim_start:])[0]
         _, v_photo, _, _ = rank_one_nmu_decreasing(traces[:, stim_start:],
                             init_factors=(u_curr, v_photo_init),
