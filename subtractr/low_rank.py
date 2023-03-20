@@ -4,6 +4,7 @@ import numpy as np
 from jax import jit
 from functools import partial
 from subtractr.pava import pava_decreasing
+from tqdm import tqdm
 
 
 def _svd_init(traces):
@@ -22,7 +23,7 @@ def _svd_init(traces):
 def _rank_one_nmu(traces, init_factors,
                   update_U=True, update_V=True,
                   baseline=False, stim_start=100,
-                  maxiter=5000, tol=1e-2, rho=2.0,):
+                  maxiter=100, tol=1e-2, rho=2.0,):
     """Non-negative matrix underapproximation with rank 1 using ADMM
 
     Init factors must be passed as a tuple of U and V matrices, due to the way JAX handles
@@ -139,7 +140,7 @@ def _rank_one_nmu(traces, init_factors,
 def _rank_one_nmu_decreasing(traces, init_factors,
                              update_U=True, update_V=True,
                              dec_start=0,  # index where we enforce the constraint
-                             maxiter=5000, tol=1e-2, rho=1.0, gamma=1.0):
+                             maxiter=100, tol=1e-2, rho=1.0, gamma=1.0):
     """Non-negative matrix underapproximation with rank 1 using ADMM
 
     Init factors must be passed as a tuple of U and V matrices, due to the way JAX handles
@@ -523,7 +524,7 @@ def estimate_photocurrents_by_batches(traces,
 
     # sort traces by magnitude around stim
     idxs = np.argsort(np.linalg.norm(
-        traces[:, stim_start:stim_end+50], axis=-1))
+        traces[:, stim_start:stim_end+50], axis=-1))[::-1]
 
     # save this so that we can return estimates in the original (unsorted) order
     reverse_idxs = np.argsort(idxs)
@@ -544,7 +545,7 @@ def estimate_photocurrents_by_batches(traces,
         # ests_batched = _make_estimate_batched(folded_traces, stim_start, stim_end)
         # print('got here')
         est[:max_index] = np.concatenate(
-            [_make_estimate(x, stim_start, stim_end) for x in folded_traces], axis=0)
+            [_make_estimate(x, stim_start, stim_end) for x in tqdm(folded_traces)], axis=0)
 
         # re-run on last batch, in case the number of traces is not divisible by the batch size
         if traces.shape[0] % batch_size != 0:
@@ -603,67 +604,90 @@ def coordinate_descent_nmu(traces,
                            rank=1,
                            update_U=True,
                            update_V=True,
-                           max_iters=100,
+                           max_iters=1,
                            tol=1e-4,
                            gamma=0.999):
 
-    # Initialize baseline terms on period before stim
+    def _update_factors(i, outer_state):
+
+        # unpack outer state
+        U_photo, V_photo, U_base, V_base, beta, loss = outer_state
+
+        # update decaying baseline if active
+        if decaying_baseline:
+            resid = traces - U_photo @ V_photo - beta
+            U_base, V_base, _, _ = _rank_one_nmu_decreasing(resid, (U_base, V_base),
+                                                             maxiter=500)
+
+        # update constant baseline if active
+        if const_baseline:
+            beta = jnp.min(traces - U_photo @ V_photo - U_base @ V_base, axis=1, keepdims=True)
+            beta = jnp.maximum(beta, 0)
+
+        # update rank-r approximation of the photocurrent component, 
+        # stored in U_photo and V_photo. Use lax.scan to update each
+        # rank-one component in turn
+        def _scan_inner(resid, curr_init_factors):
+            U_i_init, V_i_init = curr_init_factors
+            U_i_init = U_i_init[:, None]
+            V_i_init = V_i_init[None, :]
+            resid = resid + U_i_init @ V_i_init
+            U_i, V_i, _, _, = _rank_one_nmu(
+                resid,
+                (U_i_init, V_i_init),
+                update_U=update_U,
+                update_V=update_V,
+                baseline=False,
+            )
+            resid = resid - U_i @ V_i
+            return resid, (jnp.squeeze(U_i), jnp.squeeze(V_i))
+
+        resid = traces - U_photo @ V_photo - U_base @ V_base - beta
+        _, (U_photo_T, V_photo) = jax.lax.scan(
+            _scan_inner,
+            resid,
+            (U_photo.T, V_photo),
+        )
+        U_photo = U_photo_T.T
+        loss = loss.at[i].set(
+            jnp.linalg.norm(traces - U_photo @ V_photo - U_base @ V_base - beta)
+        )
+        return U_photo, V_photo, U_base, V_base, beta, loss
+
+
+    
+    # Initialize U, V, and beta using period before stim for initializing the
+    # baseline terms
     if decaying_baseline:
         U_pre, V_pre = _nonnegsvd_init(traces[:, 0:stim_start], rank=1)
         V_pre_init = jnp.linalg.lstsq(U_pre, traces)[0]
         V_pre = pava_decreasing(
             jnp.squeeze(V_pre_init), gamma=gamma)[None, :]
-#         _, V_pre, _, max_viol = rank_one_nmu_decreasing(traces, 
-#                                                  (U_pre, V_pre_init),
-#                                                   update_V=True, update_U=False,
-#                                                   gamma=gamma, rho=5.0)
         
-        U_photo, V_photo = _nonnegsvd_init(
-            np.maximum(traces - U_pre @ V_pre, 0), rank=rank
-        )
-        U = jnp.concatenate((U_pre, U_photo), axis=1)
-        V = jnp.concatenate((V_pre, V_photo), axis=0)
-        effective_rank = rank + 1
     else:
-        effective_rank = rank
-        U, V = _nonnegsvd_init(traces, rank=effective_rank)
+        U_pre, V_pre = jnp.zeros((traces.shape[0], 1)), jnp.zeros((1, traces.shape[1]))
+
+    U_photo, V_photo = _nonnegsvd_init(
+        jnp.maximum(traces - U_pre @ V_pre, 0), rank=rank
+    )
     
     if const_baseline:
-        beta = jnp.min(traces - U @ V, axis=1, keepdims=True)
+        beta = jnp.min(traces - U_pre @ V_pre - U_photo @ V_photo, axis=1, keepdims=True)
         beta = jnp.maximum(0, beta)
     else:
         beta = jnp.zeros((traces.shape[0], 1))
 
-    
-
-    # initialize with SVD and absolute value
-#     U, V = _nonnegsvd_init(traces, rank=r)
-
     loss = jnp.zeros(max_iters)
-    for i in range(max_iters):
-        if const_baseline:
-            beta = jnp.min(traces - U @ V, axis=1, keepdims=True)
-            beta = jnp.maximum(beta, 0)
+    outer_state = (U_photo, V_photo, U_pre, V_pre, beta, loss)
+    outer_state = jax.lax.fori_loop(0, max_iters, _update_factors, outer_state)
+    U_photo, V_photo, U_pre, V_pre, beta, loss = outer_state
 
-        resid_minus_beta = traces - beta
-        for r in range(effective_rank):
-            u_curr, v_curr = U[:, r:r+1], V[r:r+1, :]
-            resid = resid_minus_beta - U @ V + u_curr @ v_curr
-
-            # treat first component differently if enforcing decaying baseline
-            if decaying_baseline and r == 0:
-                u_i, v_i, _, _ = rank_one_nmu_decreasing(
-                    resid, (u_curr, v_curr), gamma=gamma)
-            else:
-                u_i, v_i, _, _ = rank_one_nmu(resid, (u_curr, v_curr))
-
-            U = U.at[:, r:r+1].set(u_i)
-            V = V.at[r:r+1, :].set(v_i)
-
-        loss = loss.at[i].set(jnp.linalg.norm(traces - U @ V - beta))
+    U = jnp.concatenate((U_pre, U_photo), axis=1)
+    V = jnp.concatenate((V_pre, V_photo), axis=0)
 
     return U, V, beta, loss
 
+# @partial(jit, static_argnames=('stim_start', 'stim_end', 'dec_start', 'gamma', 'rank'))
 def estimate_photocurrents_nmu_coordinate_descent(traces,
                                stim_start=100, stim_end=200, dec_start=500, gamma=0.999, rank=1):
     """Estimate photocurrents using non-negative matrix underapproximation.
@@ -701,6 +725,7 @@ def estimate_photocurrents_nmu_coordinate_descent(traces,
         const_baseline=True,
         decaying_baseline=True,
         rank=rank,
+        max_iters=3,
     )
     
     # The first component of U_stim, V_stim corresponds to the decaying baseline
@@ -734,7 +759,6 @@ def estimate_photocurrents_nmu_coordinate_descent(traces,
     V_photo = jnp.concatenate((jnp.zeros((rank, stim_start)), V_photo), axis=1)
 
     # concatenate U and V to get full estimate
-    U = jnp.concatenate((U_dec, U_photo), axis=1)
     V = jnp.concatenate((V_dec, V_photo), axis=0)
 
-    return U, V, beta
+    return U_stim, V, beta
