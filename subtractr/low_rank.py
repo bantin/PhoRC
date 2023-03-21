@@ -604,9 +604,13 @@ def coordinate_descent_nmu(traces,
                            rank=1,
                            update_U=True,
                            update_V=True,
-                           max_iters=1,
+                           max_iters=5,
                            tol=1e-4,
                            gamma=0.999):
+    traces = jnp.array(traces)
+    def _subtract_photo(traces, U_photo, V_photo):
+        traces = traces.copy()
+        return traces.at[:, stim_start:].set(traces[:, stim_start:] - U_photo @ V_photo)
 
     def _update_factors(i, outer_state):
 
@@ -615,13 +619,14 @@ def coordinate_descent_nmu(traces,
 
         # update decaying baseline if active
         if decaying_baseline:
-            resid = traces - U_photo @ V_photo - beta
+            resid = _subtract_photo(traces, U_photo, V_photo)
             U_base, V_base, _, _ = _rank_one_nmu_decreasing(resid, (U_base, V_base),
                                                              maxiter=500)
 
         # update constant baseline if active
         if const_baseline:
-            beta = jnp.min(traces - U_photo @ V_photo - U_base @ V_base, axis=1, keepdims=True)
+            resid = _subtract_photo(traces, U_photo, V_photo) - U_base @ V_base
+            beta = jnp.min(resid, axis=-1, keepdims=True)
             beta = jnp.maximum(beta, 0)
 
         # update rank-r approximation of the photocurrent component, 
@@ -631,18 +636,19 @@ def coordinate_descent_nmu(traces,
             U_i_init, V_i_init = curr_init_factors
             U_i_init = U_i_init[:, None]
             V_i_init = V_i_init[None, :]
-            resid = resid + U_i_init @ V_i_init
+            resid = resid.at[:, stim_start:].add(U_i_init @ V_i_init)
             U_i, V_i, _, _, = _rank_one_nmu(
-                resid,
+                resid[:, stim_start:],
                 (U_i_init, V_i_init),
                 update_U=update_U,
                 update_V=update_V,
                 baseline=False,
             )
-            resid = resid - U_i @ V_i
+            resid = resid.at[:, stim_start:].add(-U_i @ V_i)
             return resid, (jnp.squeeze(U_i), jnp.squeeze(V_i))
 
-        resid = traces - U_photo @ V_photo - U_base @ V_base - beta
+        # resid = traces - U_photo @ V_photo - U_base @ V_base - beta
+        resid = _subtract_photo(traces, U_photo, V_photo) - U_base @ V_base - beta
         _, (U_photo_T, V_photo) = jax.lax.scan(
             _scan_inner,
             resid,
@@ -650,7 +656,7 @@ def coordinate_descent_nmu(traces,
         )
         U_photo = U_photo_T.T
         loss = loss.at[i].set(
-            jnp.linalg.norm(traces - U_photo @ V_photo - U_base @ V_base - beta)
+            jnp.linalg.norm(_subtract_photo(traces, U_photo, V_photo) - U_base @ V_base - beta)
         )
         return U_photo, V_photo, U_base, V_base, beta, loss
 
@@ -667,27 +673,28 @@ def coordinate_descent_nmu(traces,
     else:
         U_pre, V_pre = jnp.zeros((traces.shape[0], 1)), jnp.zeros((1, traces.shape[1]))
 
-    U_photo, V_photo = _nonnegsvd_init(
-        jnp.maximum(traces - U_pre @ V_pre, 0), rank=rank
-    )
+    # U_photo, V_photo = _nonnegsvd_init(
+    #     jnp.maximum(traces - U_pre @ V_pre, 0), rank=rank
+    # )
+    U_photo, _, _ = _nmu(jnp.maximum(traces - U_pre @ V_pre, 0)[:, stim_start:],
+        (jnp.zeros((traces.shape[0], rank)) + jnp.nan, jnp.zeros((rank, traces.shape[1] - stim_start)) + jnp.nan),
+        rank=rank, update_U=True, update_V=True, baseline=False, stim_start=stim_start)
+    V_photo = jnp.linalg.lstsq(U_photo, traces[:, stim_start:])[0]
     
-    if const_baseline:
-        beta = jnp.min(traces - U_pre @ V_pre - U_photo @ V_photo, axis=1, keepdims=True)
-        beta = jnp.maximum(0, beta)
-    else:
-        beta = jnp.zeros((traces.shape[0], 1))
+    beta = jnp.zeros((traces.shape[0], 1))
 
     loss = jnp.zeros(max_iters)
     outer_state = (U_photo, V_photo, U_pre, V_pre, beta, loss)
     outer_state = jax.lax.fori_loop(0, max_iters, _update_factors, outer_state)
     U_photo, V_photo, U_pre, V_pre, beta, loss = outer_state
+    V_photo = jnp.concatenate((jnp.zeros((rank, stim_start)), V_photo), axis=1)
 
     U = jnp.concatenate((U_pre, U_photo), axis=1)
     V = jnp.concatenate((V_pre, V_photo), axis=0)
 
     return U, V, beta, loss
 
-# @partial(jit, static_argnames=('stim_start', 'stim_end', 'dec_start', 'gamma', 'rank'))
+@partial(jit, static_argnames=('stim_start', 'stim_end', 'dec_start', 'gamma', 'rank'))
 def estimate_photocurrents_nmu_coordinate_descent(traces,
                                stim_start=100, stim_end=200, dec_start=500, gamma=0.999, rank=1):
     """Estimate photocurrents using non-negative matrix underapproximation.
@@ -725,7 +732,7 @@ def estimate_photocurrents_nmu_coordinate_descent(traces,
         const_baseline=True,
         decaying_baseline=True,
         rank=rank,
-        max_iters=3,
+        max_iters=5,
     )
     
     # The first component of U_stim, V_stim corresponds to the decaying baseline
