@@ -265,11 +265,6 @@ def _rank_one_nmu_decreasing(traces, init_factors,
 
     return U, V, beta, max_violation
 
-rank_one_nmu = jax.jit(_rank_one_nmu, static_argnames=('update_U', 'update_V', 'baseline', 'stim_start', 'maxiter'))
-rank_one_nmu_decreasing = jax.jit(_rank_one_nmu_decreasing,
-                                static_argnames=('update_U', 'update_V', 'dec_start', 'maxiter'),
-                                backend='cpu')
-
 
 def _nmu(traces, init_factors, update_U=True, update_V=True,
          rank=1, baseline=False, stim_start=100, **kwargs):
@@ -410,7 +405,7 @@ def estimate_photocurrents_nmu(traces,
     return U_stim, V_full, beta
 
 
-@partial(jax.jit, static_argnames=('stim_start', 'stim_end', 'rank'))
+@partial(jit, static_argnames=('stim_start', 'stim_end', 'rank'), backend='cpu')
 def estimate_photocurrents_nmu_extended_baseline(traces,
                                                  stim_start=100, stim_end=200, rank=1, gamma=0.999):
     """Estimate photocurrents using non-negative matrix underapproximation.
@@ -694,7 +689,7 @@ def coordinate_descent_nmu(traces,
 
     return U, V, beta, loss
 
-@partial(jit, static_argnames=('stim_start', 'stim_end', 'dec_start', 'gamma', 'rank'))
+@partial(jit, static_argnames=('stim_start', 'stim_end', 'dec_start', 'gamma', 'rank'), backend='cpu')
 def estimate_photocurrents_nmu_coordinate_descent(traces,
                                stim_start=100, stim_end=200, dec_start=500, gamma=0.999, rank=1):
     """Estimate photocurrents using non-negative matrix underapproximation.
@@ -739,7 +734,7 @@ def estimate_photocurrents_nmu_coordinate_descent(traces,
     traces = traces - beta
     U_dec = U_stim[:,0:1]
     V_dec_full_init = jnp.linalg.lstsq(U_dec, traces)[0]
-    _, V_dec, _, _ = rank_one_nmu_decreasing(traces,
+    _, V_dec, _, _ = _rank_one_nmu_decreasing(traces,
                         init_factors=(U_dec, V_dec_full_init),
                         update_U=False, update_V=True,
                         dec_start=0, gamma=gamma)
@@ -754,7 +749,7 @@ def estimate_photocurrents_nmu_coordinate_descent(traces,
         # offset index by 1 to account for decaying baseline
         u_curr = U_stim[:, r+1:r+2]
         v_photo_init = jnp.linalg.lstsq(u_curr, traces[:, stim_start:])[0]
-        _, v_photo, _, _ = rank_one_nmu_decreasing(traces[:, stim_start:],
+        _, v_photo, _, _ = _rank_one_nmu_decreasing(traces[:, stim_start:],
                             init_factors=(u_curr, v_photo_init),
                             update_U=False, update_V=True, dec_start=dec_start, gamma=gamma)
         V_photo = V_photo.at[r:r+1, :].set(v_photo)
