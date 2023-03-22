@@ -526,6 +526,7 @@ def estimate_photocurrents_by_batches(traces,
     traces = traces[idxs]
 
     if batch_size == -1:
+        print('Running photocurrent estimation with no batching...')
         est = _make_estimate(
             traces, stim_start, stim_end
         )
@@ -536,6 +537,7 @@ def estimate_photocurrents_by_batches(traces,
         folded_traces = traces[:max_index].reshape(
             num_complete_batches, batch_size, traces.shape[1])
 
+        print('Running photocurrent estimation with %d batches...' % num_complete_batches)
         # take advantage of vmap to run in parallel on all batches (except the last one)
         # ests_batched = _make_estimate_batched(folded_traces, stim_start, stim_end)
         # print('got here')
