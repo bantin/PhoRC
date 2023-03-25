@@ -3,9 +3,6 @@ import jax.numpy as jnp
 import jax
 from jax import jit
 
-# TODO: move this import into __init__.py or somewhere
-jax.config.update("jax_enable_x64", True)
-
 def _make_pava_pools(y, gamma=1.0):
   y = jnp.array(y)
   lg = jnp.log(gamma)
@@ -79,7 +76,7 @@ def _reconstruct_from_pools(y_orig, v, w, l, gamma):
   (t_curr, out) = state
   return out
 
-@jit
+
 def pava_decreasing(y, gamma=1.0):
   v, w, l = _make_pava_pools(-y, gamma=gamma)
   return -_reconstruct_from_pools(y, v, w, l, gamma)
