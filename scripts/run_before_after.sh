@@ -12,7 +12,7 @@
 echo "Denoising m.s. grids"
 
 source ~/.bashrc
-conda activate opsin_subtraction_experiments
+conda activate subtraction
 ml cuda/11.2.0 cudnn/8.2.1.32
 
 python run_before_after_comparison.py "$@"
