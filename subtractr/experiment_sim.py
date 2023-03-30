@@ -1,5 +1,6 @@
 import numpy as np
-
+import subtractr
+from subtractr.photocurrent_sim import sample_jittered_photocurrent_shapes
 
 def add_photocurrents_to_expt(key, expt, pc_shape_params=None,
         frac_pc_cells=0.1, opsin_mean=0.5, opsin_std=0.2,
