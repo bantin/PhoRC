@@ -42,7 +42,6 @@ if __name__ == '__main__':
     parser.add_argument('--opsin_std', type=float, default=0.2)
     parser.add_argument('--stim_dur_ms', type=float, default=5.0)
     parser.add_argument('--pc_response_var', type=float, default=0.01)
-    parser.add_argument('--pc_window_len_ms', type=float, default=200)
     parser.add_argument('--sampling_freq', type=float, default=20000)
     parser.add_argument('--stim_freq', type=float, default=30)
     parser.add_argument('--prior_context', type=int, default=100)
@@ -95,7 +94,7 @@ if __name__ == '__main__':
                 opsin_std=args.opsin_std,
                 stim_dur_ms=args.stim_dur_ms,
                 pc_response_var=args.pc_response_var,
-                pc_window_len_ms=args.pc_window_len_ms,
+                pc_window_len_ms=4 * args.response_length,
                 sampling_freq=args.sampling_freq,
                 stim_freq=args.stim_freq,
                 prior_context=args.prior_context,
