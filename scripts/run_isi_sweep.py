@@ -82,7 +82,7 @@ if __name__ == '__main__':
 
     for stim_freq in np.arange(args.stim_freq_min, args.stim_freq_max + args.stim_freq_step, args.stim_freq_step):
         for i in tqdm(range(args.num_expts_per_freq), leave=True):
-            expt_len = int(np.ceil(args.num_trials/stim_freq) * sampling_freq)
+            expt_len = int(np.ceil(args.num_trials/stim_freq) * args.sampling_freq)
             expt = simulate_continuous_experiment(N=args.num_neurons, H=ntars, nreps=nreps, spont_rate=spont_rate,
                                                 connection_prob=connection_prob, stim_freq=stim_freq, expt_len=expt_len,
                                                 ground_truth_eval_batch_size=ground_truth_eval_batch_size, response_length=args.response_length,)
@@ -108,7 +108,6 @@ if __name__ == '__main__':
                 stim_start=args.stim_start_idx, 
                 stim_end=args.stim_end_idx,
                 constrain_V=args.constrain_V, batch_size=args.batch_size,
-                extended_baseline=args.extended_baseline,
                 rank=args.rank,)
             subtracted = expt['obs_with_photocurrents'] - est
             orig_pscs = expt['obs_responses']
