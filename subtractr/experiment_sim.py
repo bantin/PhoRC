@@ -133,4 +133,4 @@ def subtract_overlapping_trials(orig, est,
             subtracted_flat[stim_idx:end_idx] -= pc_est
     if return_flat:
         return subtracted_flat
-    return fold_overlapping(subtracted_flat, prior_context, response_length)
+    return fold_overlapping(subtracted_flat, prior_context, response_length, sampling_freq, stim_freq)
