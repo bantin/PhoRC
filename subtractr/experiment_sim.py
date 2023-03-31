@@ -61,6 +61,7 @@ def add_photocurrents_to_expt(key, expt, pc_shape_params=None,
     obs_flat = unfold_to_flat(expt['obs_responses'],
                     response_length=response_length, prior_context=prior_context,
                         stim_freq=stim_freq, sampling_freq=sampling_freq)
+    expt['flat_ground_truth'] = obs_flat.copy()
     
     isi = int(sampling_freq / stim_freq)
     stim_times = np.arange(0, K * isi, isi) + prior_context
@@ -103,7 +104,8 @@ def unfold_to_flat(traces, response_length=900, prior_context=100, stim_freq=30,
     
     
 def subtract_overlapping_trials(orig, est,
-            prior_context=100, stim_freq=30, sampling_freq=20000):
+            prior_context=100, stim_freq=30,
+            sampling_freq=20000, return_flat=False):
     
     
     # compute stim times based on prior context and response length
@@ -129,5 +131,6 @@ def subtract_overlapping_trials(orig, est,
             subtracted_flat[stim_idx:end_idx] -= pc_est[:est_cutoff] 
         else:
             subtracted_flat[stim_idx:end_idx] -= pc_est
-    subtracted = fold_overlapping(subtracted_flat, prior_context, response_length)
-    return subtracted
+    if return_flat:
+        return subtracted_flat
+    return fold_overlapping(subtracted_flat, prior_context, response_length)

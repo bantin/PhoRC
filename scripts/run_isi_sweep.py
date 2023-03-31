@@ -111,6 +111,11 @@ if __name__ == '__main__':
             subtracted = expt['obs_with_photocurrents'] - est
             orig_pscs = expt['obs_responses']
 
+            # Also do subtraction using the overlapping method
+            subtracted_flat = expsim.subtract_overlapping_trials(orig_pscs, est)
+            orig_flat = expt['flat_ground_truth']
+            mse = np.mean((subtracted_flat - orig_flat)**2)
+
             # add current results to dataframe
             results.loc[df_idx, 'stim_freq'] = stim_freq
             results.loc[df_idx, 'trial'] = i
@@ -118,6 +123,9 @@ if __name__ == '__main__':
             results.loc[df_idx, 'subtracted'] = [subtracted]
             results.loc[df_idx, 'original'] = [orig_pscs]
             results.loc[df_idx, 'opsin_expression'] = [expt['opsin_expression'][:,None]]
+            results.loc[df_idx, 'mse'] = mse
+            results.loc[df_idx, 'subtracted_flat'] = [subtracted_flat]
+            results.loc[df_idx, 'original_flat'] = [orig_flat]
             df_idx += 1
 
     outpath = os.path.join(args.save_path, 'stim_freq_sweep_N%i_K%i_ntars%i_nreps%i_connprob%.3f_spontrate%i_stimfreq%i_' % (
