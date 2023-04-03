@@ -5,6 +5,14 @@ from jax import jit
 from functools import partial
 from subtractr.pava import pava_decreasing
 from tqdm import tqdm
+from collections import namedtuple
+
+# Define a photocurrent estimate, which contains estimates for previous trial,
+# as well as baseline
+PhotocurrentEstimate = namedtuple(
+    'PhotocurrentEstimate',
+    ['U_pre', 'V_pre', 'U_photo', 'V_photo', 'beta', 'fit_info']
+)
 
 
 def _svd_init(traces):
@@ -471,7 +479,7 @@ def estimate_photocurrents_nmu_extended_baseline(traces,
 def estimate_photocurrents_by_batches(traces,
                                       rank=1, constrain_V=True, baseline=False,
                                       stim_start=100, stim_end=200, batch_size=-1,
-                                      subtract_baseline=True, method='coordinate_descent',
+                                      subtract_baselines=True, method='coordinate_descent',
                                       **kwargs):
     """Estimate photocurrents using non-negative matrix underapproximation.
 
@@ -505,17 +513,19 @@ def estimate_photocurrents_by_batches(traces,
         Estimated baseline term. Shape is (n_traces, 1).
     """
     estimator_dict = dict(
-        regular=estimate_photocurrents_nmu,
+        naive_svd=estimate_photocurrents_naive_svd,
         coordinate_descent=estimate_photocurrents_nmu_coordinate_descent,
-        extended_baseline=estimate_photocurrents_nmu_extended_baseline,
     )
 
     assert method in estimator_dict, f"method must be one of {list(estimator_dict.keys())}"
     estimator = estimator_dict[method]
     def _make_estimate(pscs, stim_start=100, stim_end=200):
-        U, V, beta = estimator(pscs, rank=rank,
+        result = estimator(pscs, rank=rank,
             **kwargs)
-        return U @ V + beta
+        est = result.U_photo @ result.V_photo
+        if subtract_baselines:
+            est += result.U_pre @ result.V_pre + result.beta
+        return est
 
     # sort traces by magnitude around stim
     idxs = np.argsort(np.linalg.norm(
@@ -686,10 +696,9 @@ def coordinate_descent_nmu(traces,
     U_photo, V_photo, U_pre, V_pre, beta, loss = outer_state
     V_photo = jnp.concatenate((jnp.zeros((rank, stim_start)), V_photo), axis=1)
 
-    U = jnp.concatenate((U_pre, U_photo), axis=1)
-    V = jnp.concatenate((V_pre, V_photo), axis=0)
-
-    return U, V, beta, loss
+    result = PhotocurrentEstimate(U_pre=U_pre, V_pre=V_pre,
+        U_photo=U_photo, V_photo=V_photo, beta=beta, fit_info=loss)
+    return result
 
 @partial(jit, static_argnames=('stim_start', 'stim_end', 'dec_start', 'gamma', 'rank'), backend='cpu')
 def estimate_photocurrents_nmu_coordinate_descent(traces,
@@ -724,32 +733,30 @@ def estimate_photocurrents_nmu_coordinate_descent(traces,
 
     # Fit 3 terms to the very beginning of the matrix:
     # decaying baseline, constant baseline, and photocurrent
-    U_stim, V_stim, beta, loss = coordinate_descent_nmu(
+    result = coordinate_descent_nmu(
         traces[:,0:stim_end],
         const_baseline=True,
         decaying_baseline=True,
         rank=rank,
         max_iters=5,
     )
+
     
-    # The first component of U_stim, V_stim corresponds to the decaying baseline
-    traces = traces - beta
-    U_dec = U_stim[:,0:1]
-    V_dec_full_init = jnp.linalg.lstsq(U_dec, traces)[0]
-    _, V_dec, _, _ = _rank_one_nmu_decreasing(traces,
-                        init_factors=(U_dec, V_dec_full_init),
+    # Fit decaying baseline term to account for previous trial
+    traces = traces - result.beta
+    V_dec_full_init = jnp.linalg.lstsq(result.U_pre, traces)[0]
+    _, V_pre, _, _ = _rank_one_nmu_decreasing(traces,
+                        init_factors=(result.U_pre, V_dec_full_init),
                         update_U=False, update_V=True,
                         dec_start=0, gamma=gamma)
     # subtract away decaying baseline
-    traces = traces - U_dec @ V_dec
+    traces = traces - result.U_pre @ V_pre
     
     # Now fit photocurrent and output estimate.
     # We force our photocurrent estimate to be decreasing after dec_start
     V_photo = jnp.zeros((rank, traces.shape[1] - stim_start))
     for r in range(rank):
-
-        # offset index by 1 to account for decaying baseline
-        u_curr = U_stim[:, r+1:r+2]
+        u_curr = result.U_photo[:, r:r+1]
         v_photo_init = jnp.linalg.lstsq(u_curr, traces[:, stim_start:])[0]
         _, v_photo, _, _ = _rank_one_nmu_decreasing(traces[:, stim_start:],
                             init_factors=(u_curr, v_photo_init),
@@ -762,7 +769,13 @@ def estimate_photocurrents_nmu_coordinate_descent(traces,
     # pad V with zeros to account for the time before stim_start
     V_photo = jnp.concatenate((jnp.zeros((rank, stim_start)), V_photo), axis=1)
 
-    # concatenate U and V to get full estimate
-    V = jnp.concatenate((V_dec, V_photo), axis=0)
+    result = PhotocurrentEstimate(U_pre=result.U_pre, V_pre=V_pre,
+        U_photo=result.U_photo, V_photo=V_photo, beta=result.beta, fit_info=result.fit_info)
 
-    return U_stim, V, beta
+    return result
+
+
+def estimate_photocurrents_naive_svd(traces, rank=1):
+    beta = jnp.zeros((traces.shape[0], 1))
+    U, S, V = jnp.linalg.svd(traces, full_matrices=False)
+    return U[:, :rank], jnp.diag(S[:rank]) @ V[:rank, :], beta
