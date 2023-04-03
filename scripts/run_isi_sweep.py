@@ -71,7 +71,7 @@ if __name__ == '__main__':
 
     results = pd.DataFrame(columns=['stim_freq', 'trial',
                                     'obs_with_photocurrents', 'subtracted', 'original', 'opsin_expression',
-                                    'subtracted_flat', 'original_flat'])
+                                    'subtracted_flat', 'original_flat', 'mse_subtracted', 'mse_original',])
     results['obs_with_photocurrents'] = results['obs_with_photocurrents'].astype(
         object)
     results['subtracted'] = results['subtracted'].astype(object)
@@ -125,15 +125,21 @@ if __name__ == '__main__':
             subtracted_flat = expsim.subtract_overlapping_trials(expt['obs_with_photocurrents'], est,
                                                           prior_context=args.prior_context, stim_freq=stim_freq, sampling_freq=args.sampling_freq,
                                                           return_flat=True,)
+            obs_with_photocurrents_flat = expsim.unfold_to_flat(traces=expt['obs_with_photocurrents'],
+                response_length=args.response_length, prior_context=args.prior_context,
+                stim_freq=stim_freq, sampling_freq=args.sampling_freq)  
             orig_flat = expt['flat_ground_truth']
-            mse = np.mean((subtracted_flat - orig_flat)**2)
+
+            mse_with_subtraction = np.mean((subtracted_flat - orig_flat)**2)
+            mse_without_subtraction = np.mean((obs_with_photocurrents_flat - orig_flat)**2)
 
             # add current results to dataframe
             results.loc[df_idx, 'stim_freq'] = stim_freq
             results.loc[df_idx, 'trial'] = i
             results.loc[df_idx, 'opsin_expression'] = [
                 expt['opsin_expression'][:, None]]
-            results.loc[df_idx, 'mse'] = mse
+            results.loc[df_idx, 'mse_subtracted'] = mse_with_subtraction
+            results.loc[df_idx, 'mse_no_subtraction'] = mse_without_subtraction
 
             # only save traces for the first trial
             if i == 0:
