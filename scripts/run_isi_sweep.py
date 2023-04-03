@@ -131,15 +131,19 @@ if __name__ == '__main__':
             # add current results to dataframe
             results.loc[df_idx, 'stim_freq'] = stim_freq
             results.loc[df_idx, 'trial'] = i
-            results.loc[df_idx, 'obs_with_photocurrents'] = [
-                expt['obs_with_photocurrents']]
-            results.loc[df_idx, 'subtracted'] = [subtracted]
-            results.loc[df_idx, 'original'] = [orig_pscs]
             results.loc[df_idx, 'opsin_expression'] = [
                 expt['opsin_expression'][:, None]]
             results.loc[df_idx, 'mse'] = mse
-            results.loc[df_idx, 'subtracted_flat'] = [subtracted_flat[:, None]]
-            results.loc[df_idx, 'original_flat'] = [orig_flat[:, None]]
+
+            # only save traces for the first trial
+            if i == 0:
+                results.loc[df_idx, 'subtracted_flat'] = [subtracted_flat[:, None]]
+                results.loc[df_idx, 'original_flat'] = [orig_flat[:, None]]
+                results.loc[df_idx, 'obs_with_photocurrents'] = [
+                    expt['obs_with_photocurrents']]
+                results.loc[df_idx, 'subtracted'] = [subtracted]
+                results.loc[df_idx, 'original'] = [orig_pscs]
+
             df_idx += 1
 
     outpath = os.path.join(args.save_path, 'stim_freq_sweep_N%i_K%i_ntars%i_nreps%i_connprob%.3f_spontrate%i_stimfreq%i_' % (
