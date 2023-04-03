@@ -25,7 +25,6 @@ if __name__ == '__main__':
     parser.add_argument('--n_sims_per_freq', default=10, type=int)
     parser.add_argument('--num_neurons', default=300, type=int)
     parser.add_argument('--num_trials', default=2000, type=int)
-    parser.add_argument('--num_holo_targets', default=10, type=int)
 
     # add photocurrent shape parameters
     parser.add_argument('--O_inf_min', type=float, default=0.3)
@@ -47,7 +46,6 @@ if __name__ == '__main__':
     parser.add_argument('--prior_context', type=int, default=100)
     parser.add_argument('--response_length', type=int, default=2000)
 
-
     # parameters to sweep stim_frequency
     parser.add_argument('--stim_freq_min', type=float, default=20)
     parser.add_argument('--stim_freq_max', type=float, default=50)
@@ -68,9 +66,10 @@ if __name__ == '__main__':
     ground_truth_eval_batch_size = 100
 
     results = pd.DataFrame(columns=['stim_freq', 'trial',
-        'obs_with_photocurrents', 'subtracted', 'original', 'opsin_expression',
-                                'subtracted_flat', 'original_flat'])
-    results['obs_with_photocurrents'] = results['obs_with_photocurrents'].astype(object)
+                                    'obs_with_photocurrents', 'subtracted', 'original', 'opsin_expression',
+                                    'subtracted_flat', 'original_flat'])
+    results['obs_with_photocurrents'] = results['obs_with_photocurrents'].astype(
+        object)
     results['subtracted'] = results['subtracted'].astype(object)
     results['original'] = results['original'].astype(object)
     results['opsin_expression'] = results['opsin_expression'].astype(object)
@@ -86,55 +85,57 @@ if __name__ == '__main__':
 
     for stim_freq in np.arange(args.stim_freq_min, args.stim_freq_max + args.stim_freq_step, args.stim_freq_step):
         for i in tqdm(range(args.num_expts_per_freq), leave=True):
-            expt_len = int(np.ceil(args.num_trials/stim_freq) * args.sampling_freq)
+            expt_len = int(np.ceil(args.num_trials/stim_freq)
+                           * args.sampling_freq)
             expt = simulate_continuous_experiment(N=args.num_neurons, H=ntars, nreps=nreps, spont_rate=spont_rate,
-                                                connection_prob=connection_prob, stim_freq=stim_freq, expt_len=expt_len,
-                                                ground_truth_eval_batch_size=ground_truth_eval_batch_size,
-                                                response_length=args.response_length,
-                                                H=args.num_holo_targets,)
+                                                  connection_prob=connection_prob, stim_freq=stim_freq, expt_len=expt_len,
+                                                  ground_truth_eval_batch_size=ground_truth_eval_batch_size,
+                                                  response_length=args.response_length,)
 
             # add photocurrents to the simulated experiment
             key = jrand.fold_in(key, i)
             expt = add_photocurrents_to_expt(key, expt,
-                frac_pc_cells=args.frac_pc_cells,
-                opsin_mean=args.opsin_mean,
-                opsin_std=args.opsin_std,
-                stim_dur_ms=args.stim_dur_ms,
-                pc_response_var=args.pc_response_var,
-                pc_window_len_ms=args.response_length,
-                sampling_freq=args.sampling_freq,
-                stim_freq=stim_freq,
-                prior_context=args.prior_context,
-                response_length=args.response_length,
-                )
+                                             frac_pc_cells=args.frac_pc_cells,
+                                             opsin_mean=args.opsin_mean,
+                                             opsin_std=args.opsin_std,
+                                             stim_dur_ms=args.stim_dur_ms,
+                                             pc_response_var=args.pc_response_var,
+                                             pc_window_len_ms=args.response_length,
+                                             sampling_freq=args.sampling_freq,
+                                             stim_freq=stim_freq,
+                                             prior_context=args.prior_context,
+                                             response_length=args.response_length,
+                                             )
 
             # run subtraction
             est = subtractr.low_rank.estimate_photocurrents_by_batches(
-                expt['obs_with_photocurrents'], 
-                stim_start=args.stim_start_idx, 
+                expt['obs_with_photocurrents'],
+                stim_start=args.stim_start_idx,
                 stim_end=args.stim_end_idx,
                 constrain_V=args.constrain_V, batch_size=args.batch_size,
-                rank=args.rank,)
+                rank=args.rank, subtract_baselines=False)
             subtracted = expt['obs_with_photocurrents'] - est
             orig_pscs = expt['obs_responses']
 
             # Also do subtraction using the overlapping method
             subtracted_flat = subtract_overlapping_trials(expt['obs_with_photocurrents'], est,
-                prior_context=args.prior_context, stim_freq=stim_freq, sampling_freq=args.sampling_freq,
-                return_flat=True,)
+                                                          prior_context=args.prior_context, stim_freq=stim_freq, sampling_freq=args.sampling_freq,
+                                                          return_flat=True,)
             orig_flat = expt['flat_ground_truth']
             mse = np.mean((subtracted_flat - orig_flat)**2)
 
             # add current results to dataframe
             results.loc[df_idx, 'stim_freq'] = stim_freq
             results.loc[df_idx, 'trial'] = i
-            results.loc[df_idx, 'obs_with_photocurrents'] = [expt['obs_with_photocurrents']]
+            results.loc[df_idx, 'obs_with_photocurrents'] = [
+                expt['obs_with_photocurrents']]
             results.loc[df_idx, 'subtracted'] = [subtracted]
             results.loc[df_idx, 'original'] = [orig_pscs]
-            results.loc[df_idx, 'opsin_expression'] = [expt['opsin_expression'][:,None]]
+            results.loc[df_idx, 'opsin_expression'] = [
+                expt['opsin_expression'][:, None]]
             results.loc[df_idx, 'mse'] = mse
-            results.loc[df_idx, 'subtracted_flat'] = [subtracted_flat[:,None]]
-            results.loc[df_idx, 'original_flat'] = [orig_flat[:,None]]
+            results.loc[df_idx, 'subtracted_flat'] = [subtracted_flat[:, None]]
+            results.loc[df_idx, 'original_flat'] = [orig_flat[:, None]]
             df_idx += 1
 
     outpath = os.path.join(args.save_path, 'stim_freq_sweep_N%i_K%i_ntars%i_nreps%i_connprob%.3f_spontrate%i_stimfreq%i_' % (
