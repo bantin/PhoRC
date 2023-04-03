@@ -112,7 +112,7 @@ if __name__ == '__main__':
             orig_pscs = expt['obs_responses']
 
             # Also do subtraction using the overlapping method
-            subtracted_flat = expsim.subtract_overlapping_trials(orig_pscs, est,
+            subtracted_flat = expsim.subtract_overlapping_trials(expt['obs_with_photocurrents'], est,
                 prior_context=args.prior_context, stim_freq=stim_freq, sampling_freq=args.sampling_freq,
                 return_flat=True,)
             orig_flat = expt['flat_ground_truth']
