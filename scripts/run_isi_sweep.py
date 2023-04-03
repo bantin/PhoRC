@@ -98,7 +98,7 @@ if __name__ == '__main__':
 
             # add photocurrents to the simulated experiment
             key = jrand.fold_in(key, i)
-            expt = add_photocurrents_to_expt(key, expt,
+            expt = expsim.add_photocurrents_to_expt(key, expt,
                                              frac_pc_cells=args.frac_pc_cells,
                                              opsin_mean=args.opsin_mean,
                                              opsin_std=args.opsin_std,
@@ -122,7 +122,7 @@ if __name__ == '__main__':
             orig_pscs = expt['obs_responses']
 
             # Also do subtraction using the overlapping method
-            subtracted_flat = subtract_overlapping_trials(expt['obs_with_photocurrents'], est,
+            subtracted_flat = expsim.subtract_overlapping_trials(expt['obs_with_photocurrents'], est,
                                                           prior_context=args.prior_context, stim_freq=stim_freq, sampling_freq=args.sampling_freq,
                                                           return_flat=True,)
             orig_flat = expt['flat_ground_truth']
