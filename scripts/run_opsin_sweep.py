@@ -177,7 +177,7 @@ if __name__ == '__main__':
 
             df_idx += 1
 
-    outpath = os.path.join(args.save_path, 'stim_freq_sweep_N%i_K%i_ntars%i_nreps%i_connprob%.3f_spontrate%i_stimfreq%i_' % (
+    outpath = os.path.join(args.save_path, 'frac_pc_cells_sweep_N%i_K%i_ntars%i_nreps%i_connprob%.3f_spontrate%i_stimfreq%i_' % (
         args.num_neurons, args.num_trials, ntars, nreps, connection_prob, spont_rate, stim_freq) + token + '_%s.pkl' % (date.today().__str__()))
 
     with bz2.BZ2File(outpath, 'wb') as savefile:
