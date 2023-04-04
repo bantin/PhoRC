@@ -13,7 +13,7 @@ from datetime import date
 from tqdm import tqdm
 
 import subtractr.experiment_sim as expsim
-from subtractr.utils import add_subtraction_args
+from subtractr.utils import add_subtraction_args, add_caviar_args
 from circuitmap.simulation import simulate_continuous_experiment
 
 # enable jax 64 bit mode
@@ -78,7 +78,7 @@ if __name__ == '__main__':
     parser.add_argument('--demixer_path', type=str)
 
     # caviar args
-    parser = utils.add_caviar_args(parser=parser)
+    parser = add_caviar_args(parser=parser)
 
     # add subtraction parameters
     parser = add_subtraction_args(parser)
