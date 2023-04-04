@@ -76,6 +76,7 @@ if __name__ == '__main__':
 
     # demixer parameters
     parser.add_argument('--demixer_path', type=str)
+    parser.add_argument('--demixer_response_length', type=int, default=900)
 
     # caviar args
     parser = add_caviar_args(parser=parser)
@@ -116,8 +117,8 @@ if __name__ == '__main__':
 
     # sweep over frac_pc_cells
     for frac_pc_cells in np.arange(args.frac_pc_cells_min, args.frac_pc_cells_max + args.frac_pc_cells_step, args.frac_pc_cells_step):
-        for i in tqdm(range(args.num_expts_per_freq), leave=True):
-            expt_len = int(np.ceil(args.num_trials/stim_freq)
+        for i in tqdm(range(args.num_sims_per_sweep), leave=True):
+            expt_len = int(np.ceil(args.num_trials/args.stim_freq)
                            * args.sampling_freq)
             expt = simulate_continuous_experiment(N=args.num_neurons, H=ntars, nreps=nreps, spont_rate=spont_rate,
                                                   connection_prob=connection_prob, stim_freq=args.stim_freq, expt_len=expt_len,
@@ -155,8 +156,13 @@ if __name__ == '__main__':
             # re-fold subtracted trials into matrix
             subtracted = expsim.fold_overlapping(subtracted_flat, args.prior_context, args.response_length, args.sampling_freq, args.stim_freq)
 
+            # We use a long response length to cover the case of overlapping trials,
+            # but the demixer expects a response lenght of 900 frames
+            obs = expt['obs_with_photocurrents'][:, :args.demixer_response_length]
+            subtracted = subtracted[:, :args.demixer_response_length]
+
             # Run demixing and CAVIaR without subtraction
-            mu_without = run_detection_pipeline(expt['obs_with_photocurrents'],
+            mu_without = run_detection_pipeline(obs,
                 expt['stim_matrix'], demixer, args)
 
             # Run demixing and CAVIaR with subtraction
@@ -164,7 +170,7 @@ if __name__ == '__main__':
                 expt['stim_matrix'], demixer, args)
 
             # add current results to dataframe
-            results.loc[df_idx, 'stim_freq'] = stim_freq
+            results.loc[df_idx, 'stim_freq'] = args.stim_freq
             results.loc[df_idx, 'trial'] = i
             results.loc[df_idx, 'weights_subtracted'] = [mu_with]
             results.loc[df_idx, 'weights_raw'] = [mu_without]
@@ -173,12 +179,12 @@ if __name__ == '__main__':
             # only save traces for the first trial
             if i == 0:
                 results.loc[df_idx, 'subtracted'] = [subtracted]
-                results.loc[df_idx, 'original'] = [expt['obs_with_photocurrents']]
+                results.loc[df_idx, 'original'] = [obs]
 
             df_idx += 1
 
     outpath = os.path.join(args.save_path, 'frac_pc_cells_sweep_N%i_K%i_ntars%i_nreps%i_connprob%.3f_spontrate%i_stimfreq%i_' % (
-        args.num_neurons, args.num_trials, ntars, nreps, connection_prob, spont_rate, stim_freq) + token + '_%s.pkl' % (date.today().__str__()))
+        args.num_neurons, args.num_trials, ntars, nreps, connection_prob, spont_rate, args.stim_freq) + token + '_%s.pkl' % (date.today().__str__()))
 
     with bz2.BZ2File(outpath, 'wb') as savefile:
         cpickle.dump(results, savefile)
