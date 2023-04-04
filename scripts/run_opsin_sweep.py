@@ -102,13 +102,6 @@ if __name__ == '__main__':
                                     'weights_subtracted',
                                     'weights_raw',
                                     'weights_true'])
-    results['stim_freq'] = results['stim_freq'].astype('float')
-    results['trial'] = results['trial'].astype('int')
-    results['subtracted'] = results['subtracted'].astype('object')
-    results['original'] = results['original'].astype('object')
-    results['weights_subtracted'] = results['weights_subtracted'].astype('object')
-    results['weights_raw'] = results['weights_raw'].astype('object')
-
 
     df_idx = 0
 
@@ -172,14 +165,14 @@ if __name__ == '__main__':
             # add current results to dataframe
             results.loc[df_idx, 'stim_freq'] = args.stim_freq
             results.loc[df_idx, 'trial'] = i
-            results.loc[df_idx, 'weights_subtracted'] = [mu_with]
-            results.loc[df_idx, 'weights_raw'] = [mu_without]
-            results.loc[df_idx, 'weights_true'] = [expt['weigthts']]
+            results.loc[df_idx, 'weights_subtracted'] = mu_with
+            results.loc[df_idx, 'weights_raw'] = mu_without
+            results.loc[df_idx, 'weights_true'] = expt['weights']
 
             # only save traces for the first trial
             if i == 0:
-                results.loc[df_idx, 'subtracted'] = [subtracted]
-                results.loc[df_idx, 'original'] = [obs]
+                results.loc[df_idx, 'subtracted'] = subtracted
+                results.loc[df_idx, 'original'] = obs
 
             df_idx += 1
 
