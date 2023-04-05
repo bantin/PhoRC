@@ -3,7 +3,7 @@ import numpy as np
 import subtractr
 import circuitmap as cm
 import pandas as pd
-import _pickle as cpickle  # pickle compression
+import _pickle as cpickle
 import bz2
 import os
 import jax
@@ -42,21 +42,18 @@ if __name__ == '__main__':
     parser.add_argument('--token', default='')
     parser.add_argument('--save_path', default='./')
     parser.add_argument('--n_sims_per_freq', default=10, type=int)
-    parser.add_argument('--num_neurons', default=300, type=int)
+    parser.add_argument('--num_neurons', default=100, type=int)
     parser.add_argument('--num_trials', default=2000, type=int)
 
-    # add photocurrent shape parameters
-    parser.add_argument('--O_inf_min', type=float, default=0.3)
-    parser.add_argument('--O_inf_max', type=float, default=1.0)
-    parser.add_argument('--R_inf_min', type=float, default=0.3)
-    parser.add_argument('--R_inf_max', type=float, default=1.0)
-    parser.add_argument('--tau_o_min', type=float, default=3)
-    parser.add_argument('--tau_o_max', type=float, default=30)
-    parser.add_argument('--tau_r_min', type=float, default=3)
-    parser.add_argument('--tau_r_max', type=float, default=30)
+    parser.add_argument('--tau_delta_min', type=float, default=60) # match e->e connections
+    parser.add_argument('--tau_delta_max', type=float, default=120)
+    parser.add_argument('--weight_lower', type=float, default=5)
+    parser.add_argument('--weight_upper', type=float, default=10)
+    parser.add_argument('--strong_weight_lower', type=float, default=20)
+    parser.add_argument('--strong_weight_upper', type=float, default=30)
+
 
     # add photocurrent amount parameters
-    parser.add_argument('--frac_pc_cells', type=float, default=0.01)
     parser.add_argument('--opsin_mean', type=float, default=0.3)
     parser.add_argument('--opsin_std', type=float, default=0.2)
     parser.add_argument('--stim_dur_ms', type=float, default=5.0)
@@ -98,7 +95,8 @@ if __name__ == '__main__':
     ground_truth_eval_batch_size = 100
 
     results = pd.DataFrame(columns=['stim_freq', 'trial',
-                                    'subtracted', 'original',
+                                    'frac_pc_cells',
+                                    'subtracted', 'original', 'ground_truth',
                                     'weights_subtracted',
                                     'weights_raw',
                                     'weights_true'])
@@ -116,7 +114,13 @@ if __name__ == '__main__':
             expt = simulate_continuous_experiment(N=args.num_neurons, H=ntars, nreps=nreps, spont_rate=spont_rate,
                                                   connection_prob=connection_prob, stim_freq=args.stim_freq, expt_len=expt_len,
                                                   ground_truth_eval_batch_size=ground_truth_eval_batch_size,
-                                                  response_length=args.response_length,)
+                                                  response_length=args.response_length,
+                                                  tau_delta_min=args.tau_delta_min,
+                                                  tau_delta_max=args.tau_delta_max,
+                                                  weight_lower=args.weight_lower,
+                                                  weight_upper=args.weight_upper,
+                                                  strong_weight_lower=args.strong_weight_lower,
+                                                  strong_weight_upper=args.strong_weight_upper)
 
             # add photocurrents to the simulated experiment
             key = jrand.fold_in(key, i)
@@ -168,16 +172,18 @@ if __name__ == '__main__':
             results.loc[df_idx, 'weights_subtracted'] = mu_with
             results.loc[df_idx, 'weights_raw'] = mu_without
             results.loc[df_idx, 'weights_true'] = expt['weights']
+            results.loc[df_idx, 'frac_pc_cells'] = frac_pc_cells
 
             # only save traces for the first trial
             if i == 0:
                 results.loc[df_idx, 'subtracted'] = subtracted
                 results.loc[df_idx, 'original'] = obs
+                results.loc[df_idx, 'ground_truth'] = expt['obs_responses'][:, :args.demixer_response_length]
 
             df_idx += 1
 
-    outpath = os.path.join(args.save_path, 'frac_pc_cells_sweep_N%i_K%i_ntars%i_nreps%i_connprob%.3f_spontrate%i_stimfreq%i_' % (
-        args.num_neurons, args.num_trials, ntars, nreps, connection_prob, spont_rate, args.stim_freq) + token + '_%s.pkl' % (date.today().__str__()))
+    outpath = os.path.join(args.save_path, 'frac_pc_cells_sweep_N%i_K%i_ntars%i_nreps%i_connprob%.3f_spontrate%i_stimfreq%i_numsims%i' % (
+        args.num_neurons, args.num_trials, ntars, nreps, connection_prob, spont_rate, args.stim_freq, args.num_sims_per_sweep) + token + '_%s.pkl' % (date.today().__str__()))
 
     with bz2.BZ2File(outpath, 'wb') as savefile:
         cpickle.dump(results, savefile)

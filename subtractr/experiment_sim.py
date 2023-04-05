@@ -46,8 +46,8 @@ def add_photocurrents_to_expt(key, expt, pc_shape_params=None,
         target_gp_scale=0.01,
         linear_onset_frac=1.0,
         msecs_per_sample=0.05,
-        stim_start=0.0,
-        stim_end=stim_dur_ms,
+        stim_start=(prior_context / sampling_freq * 1e3), # calculate stim start based on prior context
+        stim_end=(prior_context / sampling_freq * 1e3) + stim_dur_ms,
         isi_ms=30,
         window_len_ms=pc_window_len_ms,
     )
@@ -70,7 +70,7 @@ def add_photocurrents_to_expt(key, expt, pc_shape_params=None,
     expt['flat_ground_truth'] = obs_flat.copy()
     
     isi = int(sampling_freq / stim_freq)
-    stim_times = np.arange(0, K * isi, isi) + prior_context
+    stim_times = np.arange(0, K * isi, isi)
 
     for i,stim_idx in enumerate(stim_times):
         _end_idx = stim_idx + window_len_samples
