@@ -171,7 +171,7 @@ if __name__ == '__main__':
             # run demixing on caviar on observations before photocurrents are added
             # this gives oracle
             mu_oracle = run_detection_pipeline(expt['obs_responses'],
-                stim_mat, demixer, args)
+                expt['stim_matrix'], demixer, args)
 
             # add current results to dataframe
             results.loc[df_idx, 'stim_freq'] = args.stim_freq
