@@ -96,10 +96,12 @@ if __name__ == '__main__':
 
     results = pd.DataFrame(columns=['stim_freq', 'trial',
                                     'frac_pc_cells',
+                                    'opsin_expression',
                                     'subtracted', 'original', 'ground_truth',
                                     'weights_subtracted',
                                     'weights_raw',
-                                    'weights_true'])
+                                    'weights_true',
+                                    'weights_oracle'])
 
     df_idx = 0
 
@@ -166,13 +168,20 @@ if __name__ == '__main__':
             mu_with = run_detection_pipeline(subtracted,
                 expt['stim_matrix'], demixer, args)
 
+            # run demixing on caviar on observations before photocurrents are added
+            # this gives oracle
+            mu_oracle = run_detection_pipeline(expt['obs_responses'],
+                stim_mat, demixer, args)
+
             # add current results to dataframe
             results.loc[df_idx, 'stim_freq'] = args.stim_freq
             results.loc[df_idx, 'trial'] = i
             results.loc[df_idx, 'weights_subtracted'] = mu_with
             results.loc[df_idx, 'weights_raw'] = mu_without
+            results.loc[df_idx, 'weights_oracle'] = mu_oracle
             results.loc[df_idx, 'weights_true'] = expt['weights']
             results.loc[df_idx, 'frac_pc_cells'] = frac_pc_cells
+            results.loc[df_idx, 'opsin_expression'] = expt['opsin_expression']
 
             # only save traces for the first trial
             if i == 0:
