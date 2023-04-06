@@ -97,7 +97,10 @@ if __name__ == '__main__':
     results = pd.DataFrame(columns=['stim_freq', 'trial',
                                     'frac_pc_cells',
                                     'opsin_expression',
-                                    'subtracted', 'original', 'ground_truth',
+                                    'subtracted',
+                                    'original',
+                                    'ground_truth',
+                                    'stim_matrix',
                                     'weights_subtracted',
                                     'weights_raw',
                                     'weights_true',
@@ -185,6 +188,7 @@ if __name__ == '__main__':
 
             # only save traces for the first trial
             if i == 0:
+                results.loc[df_idx, 'stim_matrix'] = expt['stim_matrix']
                 results.loc[df_idx, 'subtracted'] = subtracted
                 results.loc[df_idx, 'original'] = obs
                 results.loc[df_idx, 'ground_truth'] = expt['obs_responses'][:, :args.demixer_response_length]
