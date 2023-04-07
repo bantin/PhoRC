@@ -529,7 +529,7 @@ def estimate_photocurrents_by_batches(traces,
 
     # sort traces by magnitude around stim
     idxs = np.argsort(np.linalg.norm(
-        traces[:, stim_start:stim_end+50], axis=-1))[::-1]
+        traces[:, stim_start:stim_end], axis=-1))[::-1]
 
     # save this so that we can return estimates in the original (unsorted) order
     reverse_idxs = np.argsort(idxs)
