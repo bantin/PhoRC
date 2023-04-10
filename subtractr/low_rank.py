@@ -519,7 +519,7 @@ def estimate_photocurrents_by_batches(traces,
 
     assert method in estimator_dict, f"method must be one of {list(estimator_dict.keys())}"
     estimator = estimator_dict[method]
-    def _make_estimate(pscs, stim_start=100, stim_end=200):
+    def _make_estimate(pscs, stim_start, stim_end):
         result = estimator(pscs, rank=rank,
             **kwargs)
         est = result.U_photo @ result.V_photo

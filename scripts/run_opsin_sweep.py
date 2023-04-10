@@ -51,6 +51,8 @@ if __name__ == '__main__':
     parser.add_argument('--weight_upper', type=float, default=10)
     parser.add_argument('--strong_weight_lower', type=float, default=20)
     parser.add_argument('--strong_weight_upper', type=float, default=30)
+    parser.add_argument('--gamma_beta', type=float, default=25) # distribution of latencies
+    parser.add_argument('--min_latency', type=int, default=60) # min latency of PSCs at max power
 
 
     # add photocurrent amount parameters
@@ -125,7 +127,9 @@ if __name__ == '__main__':
                                                   weight_lower=args.weight_lower,
                                                   weight_upper=args.weight_upper,
                                                   strong_weight_lower=args.strong_weight_lower,
-                                                  strong_weight_upper=args.strong_weight_upper)
+                                                  strong_weight_upper=args.strong_weight_upper,
+                                                  gamma_beta=args.gamma_beta,
+                                                  min_latency=args.min_latency,)
 
             # add photocurrents to the simulated experiment
             key = jrand.fold_in(key, i)
