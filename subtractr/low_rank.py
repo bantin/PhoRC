@@ -117,12 +117,18 @@ def _rank_one_nmu(traces, init_factors,
             U = jax.lax.cond(
                 jnp.all(U <= 1e-10),
                 lambda _: U * 0.0,
-                lambda _: U / jnp.linalg.norm(U),
+                lambda _: U,
                 None,
             )
         if update_V:
             V = (U.T @ M) / (U.T @ U + 1e-10)
             V = jnp.maximum(0, V)
+            V = jax.lax.cond(
+                jnp.all(V <= 1e-10),
+                lambda _: V * 0.0,
+                lambda _: V / jnp.linalg.norm(V),
+                None,
+            )
         if baseline:
             V = V.at[:, 0:stim_start].set(0)
             beta = jnp.sum(1 / rho * Gamma + traces - U @ V - R,
@@ -521,6 +527,7 @@ def estimate_photocurrents_by_batches(traces,
     estimator = estimator_dict[method]
     def _make_estimate(pscs, stim_start, stim_end):
         result = estimator(pscs, rank=rank,
+            stim_start=stim_start, stim_end=stim_end,
             **kwargs)
         est = result.U_photo @ result.V_photo
         if subtract_baselines:
