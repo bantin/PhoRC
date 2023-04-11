@@ -3,7 +3,7 @@
 #
 #SBATCH --job-name=subtractr_opsin_sweep
 #SBATCH -c 8                   
-#SBATCH --time=10:00:00             
+#SBATCH --time=1-10:00:00             
 #SBATCH --mem-per-cpu=4GB       
 #SBATCH --gres=gpu:1
 #SBATCH --output=%x.%j.out
