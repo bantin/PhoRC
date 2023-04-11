@@ -8,6 +8,7 @@ import bz2
 import os
 import jax
 import jax.random as jrand
+import itertools
 
 from datetime import date
 from tqdm import tqdm
@@ -52,7 +53,11 @@ if __name__ == '__main__':
     parser.add_argument('--strong_weight_lower', type=float, default=20)
     parser.add_argument('--strong_weight_upper', type=float, default=30)
     parser.add_argument('--gamma_beta', type=float, default=25) # distribution of latencies
-    parser.add_argument('--min_latency', type=int, default=60) # min latency of PSCs at max power
+
+    # add params to sweep over min latency
+    parser.add_argument('--min_latency_min', type=int, default=60) # min latency of PSCs at max power
+    parser.add_argument('--min_latency_max', type=int, default=100)
+    parser.add_argument('--min_latency_step', type=int, default=10)
 
 
     # add photocurrent amount parameters
@@ -106,15 +111,18 @@ if __name__ == '__main__':
                                     'weights_subtracted',
                                     'weights_raw',
                                     'weights_true',
-                                    'weights_oracle'])
+                                    'weights_oracle',
+                                    'min_latency',])
 
     df_idx = 0
 
     # intialize random key
     key = jrand.PRNGKey(0)
 
-    # sweep over frac_pc_cells
-    for frac_pc_cells in np.arange(args.frac_pc_cells_min, args.frac_pc_cells_max + args.frac_pc_cells_step, args.frac_pc_cells_step):
+    # sweep over frac_pc_cells and min_latency using itertools.product
+    latencies = np.arange(args.min_latency_min, args.min_latency_max + args.min_latency_step, args.min_latency_step)
+    frac_pc_cells_vals = np.arange(args.frac_pc_cells_min, args.frac_pc_cells_max + args.frac_pc_cells_step, args.frac_pc_cells_step)
+    for frac_pc_cells, min_latency in itertools.product(frac_pc_cells_vals, latencies):
         for i in tqdm(range(args.num_sims_per_sweep), leave=True):
             expt_len = int(np.ceil(args.num_trials/args.stim_freq)
                            * args.sampling_freq)
@@ -129,7 +137,7 @@ if __name__ == '__main__':
                                                   strong_weight_lower=args.strong_weight_lower,
                                                   strong_weight_upper=args.strong_weight_upper,
                                                   gamma_beta=args.gamma_beta,
-                                                  min_latency=args.min_latency,)
+                                                  min_latency=min_latency,)
 
             # add photocurrents to the simulated experiment
             key = jrand.fold_in(key, i)
@@ -150,7 +158,7 @@ if __name__ == '__main__':
             est = subtractr.low_rank.estimate_photocurrents_by_batches(
                 expt['obs_with_photocurrents'],
                 stim_start=args.stim_start_idx,
-                stim_end=args.stim_end_idx,
+                stim_end=args.stim_start_idx + min_latency,
                 constrain_V=args.constrain_V, batch_size=args.batch_size,
                 rank=args.rank, subtract_baselines=False)
 
@@ -189,6 +197,7 @@ if __name__ == '__main__':
             results.loc[df_idx, 'weights_true'] = expt['weights']
             results.loc[df_idx, 'frac_pc_cells'] = frac_pc_cells
             results.loc[df_idx, 'opsin_expression'] = expt['opsin_expression']
+            results.loc[df_idx, 'min_latency'] = min_latency
 
             # only save traces for the first trial
             if i == 0:
