@@ -1,6 +1,13 @@
 import numpy as np
 import subtractr
+
+import subtractr.photocurrent_sim as pcsim
+import h5py
+
+from scipy.stats import multivariate_normal
 from subtractr.photocurrent_sim import sample_jittered_photocurrent_shapes
+
+
 
 def add_photocurrents_to_expt(key, expt, pc_shape_params=None,
         frac_pc_cells=0.1, opsin_mean=0.5, opsin_std=0.2,
@@ -48,7 +55,7 @@ def add_photocurrents_to_expt(key, expt, pc_shape_params=None,
         msecs_per_sample=0.05,
         stim_start=(prior_context / sampling_freq * 1e3), # calculate stim start based on prior context
         stim_end=(prior_context / sampling_freq * 1e3) + stim_dur_ms,
-        isi_ms=30,
+        isi_ms=1000 / stim_freq,
         window_len_ms=pc_window_len_ms,
     )
    
@@ -87,6 +94,121 @@ def add_photocurrents_to_expt(key, expt, pc_shape_params=None,
     expt['true_photocurrents'] = true_photocurrents
     expt['opsin_expression'] = opsin_expression
     return expt
+
+def make_spatial_opsin_resp(targets,
+    powers,
+    stim_mat,
+    phi_0=0.1,
+    phi_1=50,
+    opsin_loc=None):
+
+    def sigmoid(x):
+        return 1 / (1 + np.exp(-x))
+
+    unique_powers = np.unique(powers)
+    unique_tars = np.unique(targets, axis=0)
+
+    num_xs = len(np.unique(unique_tars[:,0]))
+    num_ys = len(np.unique(unique_tars[:,1]))
+    num_zs = len(np.unique(unique_tars[:,2]))
+
+    if opsin_loc is None:
+        opsin_resp_centroid = np.mean(unique_tars, axis=0)
+    else:
+        opsin_resp_centroid = opsin_loc
+    opsin_resp_cov = np.diag([50, 50, 400])
+ 
+    rv = multivariate_normal(opsin_resp_centroid, opsin_resp_cov)
+
+    opsin_resp = np.zeros(stim_mat.shape[1])
+    for trial in range(stim_mat.shape[1]):
+        neurons_this_trial = np.where(stim_mat[:, trial])[0]
+        for neuron_idx in neurons_this_trial:
+            xyz = targets[neuron_idx]
+            p = powers[trial]
+            opsin_resp[trial] += rv.pdf(xyz) * phi_0 * sigmoid(p - phi_1)
+
+    opsin_resp /= np.max(opsin_resp)
+    return opsin_resp
+
+
+def make_hybrid_spatial_dataset(key,
+    pscs,
+    targets,
+    powers,
+    stim_mat,
+    opsin_std_dev=0.1,
+    pc_shape_params=None,
+    onset_latency_ms=0.0,
+    onset_jitter_ms=0.2,
+    opsin_scale=0.8,
+    opsin_loc=None,
+    response_cutoff=0.1,
+    response_length=900,
+    prior_context=100,
+    stim_freq=30,
+    stim_dur_ms=5,
+    sampling_freq=20000,
+    pc_window_len_ms=180,):
+
+    if pc_shape_params is None:
+        pc_shape_params = dict(
+           O_inf_min=0.3,
+            O_inf_max=1.0,
+            R_inf_min=0.3,
+            R_inf_max=1.0,
+            tau_o_min=7,
+            tau_o_max=7,
+            tau_r_min=26,
+            tau_r_max=29, 
+        )
+
+    pc_full_params = dict(
+        onset_jitter_ms=0.01,
+        onset_latency_ms=0.0,
+        pc_shape_params=pc_shape_params,
+        add_target_gp=False,
+        target_gp_lengthscale=20,
+        target_gp_scale=0.01,
+        linear_onset_frac=1.0,
+        msecs_per_sample=0.05,
+        stim_start=(prior_context / sampling_freq * 1e3), # calculate stim start based on prior context
+        stim_end=(prior_context / sampling_freq * 1e3) + stim_dur_ms,
+        isi_ms=(1 / stim_freq * 1e3),
+        window_len_ms=(response_length / sampling_freq * 1e3),
+    )
+
+    # sample a bunch of photocurrent waveforms with the same shape,
+    # but with slight jitter
+    photocurrent_waveforms = pcsim.sample_jittered_photocurrent_shapes(
+            key,
+            pscs.shape[0],
+            **pc_full_params,
+    )
+    prev_waveforms, curr_waveforms, next_waveforms = [np.array(x) for x in photocurrent_waveforms]
+        
+    # create opsin response for previous, current, and next trials
+    def get_opsin_scales(targets, powers, stim_mat, opsin_loc, opsin_scale):
+        average_opsin_resp = make_spatial_opsin_resp(targets,
+            powers, stim_mat, opsin_loc=opsin_loc) * opsin_scale
+        opsin_scales = np.random.normal(loc=average_opsin_resp, scale=opsin_std_dev)
+        idxs_cutoff = (average_opsin_resp < response_cutoff)
+        opsin_scales[idxs_cutoff] = 0.0
+        opsin_scales = np.maximum(0, opsin_scales)
+        return opsin_scales
+
+    # get opsin scales
+    opsin_scales = get_opsin_scales(targets, powers, stim_mat, opsin_loc, opsin_scale)
+    
+    # combine photocurrents from previous, current, and next trials
+    photocurrents = curr_waveforms * opsin_scales[:, None]
+    photocurrents[1:] += prev_waveforms[1:] * opsin_scales[:-1, None]
+    photocurrents[:-1] += next_waveforms[:-1] * opsin_scales[1:, None]
+
+    pscs_plus_photo = pscs + photocurrents
+
+    return pscs_plus_photo, photocurrents, photocurrent_waveforms
+
 
 def fold_overlapping(trace, prior_context, response_length, sampling_freq, stim_freq):
     """
