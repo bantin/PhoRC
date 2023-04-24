@@ -474,7 +474,8 @@ def sample_jittered_photocurrent_shapes(
 
 @partial(jit, static_argnames=(
     'add_target_gp', 'msecs_per_sample', 'num_traces',
-    'stim_start', 'stim_end', 'isi_ms', 'window_len_ms', 'normalize_type'))
+    'stim_start', 'stim_end', 'isi_ms', 'window_len_ms', 'normalize_type',
+    'inhibitory_pscs'))
 def sample_photocurrent_experiment(
     key, num_traces=32, 
     onset_jitter_ms=1.0,
@@ -503,6 +504,7 @@ def sample_photocurrent_experiment(
     iid_noise_std_min=0.001,
     iid_noise_std_max=0.02,
     normalize_type='max',
+    inhibitory_pscs=False,
     ):
     keys = iter(jrand.split(key, num=12))
 
@@ -576,6 +578,9 @@ def sample_photocurrent_experiment(
 
     psc_keys = jrand.split(next(keys), num=num_traces)
     pscs, _ = sample_pscs_batch(psc_keys)
+
+    if inhibitory_pscs:
+        pscs = -pscs
 
     # sample noise. Each experiment has it's own noise scales
     gp_scale = jrand.uniform(next(keys), minval=gp_scale_min, maxval=gp_scale_max)

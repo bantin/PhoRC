@@ -53,6 +53,9 @@ class Subtractr(pl.LightningModule):
         parser.add_argument('--prev_mode_probs', nargs=4, type=float, default=(0.5, 0.4, 0.05, 0.05))
         parser.add_argument('--next_mode_probs', nargs=4, type=float, default=(0.5, 0.4, 0.05, 0.05))
         parser.add_argument('--mode_probs', nargs=4, type=float, default=(0.5, 0.4, 0.05, 0.05))
+        parser.add_argument('--inhibitory_pscs', action='store_true')
+        parser.add_argument('--no_inhibitory_pscs', dest='inhibitory_pscs', action='store_false')
+        parser.set_defaults(inhibitory_pscs=False)
 
         parser.add_argument('--gp_scale_min', type=float, default=0.01)
         parser.add_argument('--gp_scale_max', type=float, default=0.045)
@@ -309,7 +312,8 @@ class Subtractr(pl.LightningModule):
             iid_noise_std_min=args.iid_noise_std_min,
             iid_noise_std_max=args.iid_noise_std_max,
             gp_scale_min=args.gp_scale_min,
-            gp_scale_max=args.gp_scale_max,))
+            gp_scale_max=args.gp_scale_max,
+            inhibitory_pscs=args.inhibitory_pscs,))
 
         # Since low-pass filters are not yet implemented in jax, we
         # do this as a postprocessing step
