@@ -1,5 +1,10 @@
 import matplotlib.pyplot as plt
+import matplotlib_ephys as mpe
 import numpy as np
+import seaborn as sns
+
+from matplotlib_scalebar import scalebar
+from mpl_toolkits.axes_grid1 import ImageGrid, make_axes_locatable
 
 
 def plot_multi_means(fig, mean_maps, depth_idxs,
@@ -215,7 +220,8 @@ def plot_collection(ax, xs, ys, *args, **kwargs):
     plt.legend(newHandles, newLabels)
 
 def plot_current_traces(traces, msecs_per_sample=0.05,
-    time_cutoff=None, ax=None, stim_start_ms=5, stim_end_ms=10, plot_stim_lines=True, **kwargs):
+    time_cutoff=None, ax=None, stim_start_ms=5, stim_end_ms=10, plot_stim_lines=True,
+    scalebar=True, add_labels=False, IV_bar_length=None, **kwargs):
     """
     Plot a collection of current traces.
     params:
@@ -242,9 +248,117 @@ def plot_current_traces(traces, msecs_per_sample=0.05,
         ax.axvline(x=stim_start_ms, color='grey', linestyle='--')
         ax.axvline(x=stim_end_ms, color='grey', linestyle='--')
 
-    ax.set_xlabel('Time (ms)')
-    ax.set_ylabel('Current (nA)')
+    # add scale bars and turn off spines
+    if scalebar:
+        mpe.plotting.draw_scale_bars(ax, style="paper", is_current=True, location="top", IV_bar_length=IV_bar_length)
+        mpe.plotting.hide_spines(ax)
 
+    ax.set_box_aspect(2/3)
+    if add_labels:
+        ax.set_xlabel('Time (ms)')
+        ax.set_ylabel('Current (nA)')
+
+
+def plot_gridmap_with_scalebars(map, targets, ax=None,
+    show_scalebar=True, show_colorbar=True, scalebar_loc='lower_right', colorbar_position='right', **imshow_kwargs):
+    if ax is None:
+        ax = plt.gca()
+
+    real_x = targets[:, 0]
+    real_y = targets[:, 1]
+
+    dx = (real_x[1]-real_x[0])/2.
+    dy = (real_y[1]-real_y[0])/2.
+    extent = [real_x[0]-dx, real_x[-1]+dx, real_y[0]-dy, real_y[-1]+dy]
+
+    # plot the image
+    im = ax.imshow(map, origin='lower', cmap='magma', extent=extent, **imshow_kwargs)
+
+    # add scale bar
+    if show_scalebar:
+        scb = scalebar.ScaleBar(1.0, 'um', frameon=True,
+            location=scalebar_loc, box_alpha=0.0, color='white')
+        ax.add_artist(scb)
+
+    # create an axes on the right side of ax. The width of cax will be 5%
+    # of ax and the padding between cax and ax will be fixed at 0.05 inch.
+    divider = make_axes_locatable(ax)
+    cax = divider.append_axes(colorbar_position, size="5%", pad=0.05)
+
+    if show_colorbar:
+        cbar = plt.colorbar(im, cax=cax)
+        if colorbar_position == 'left':
+            cbar.ax.yaxis.set_ticks_position('left')
+            cbar.ax.yaxis.set_tick_params(direction='out', labelleft=True, labelright=False)
+    else:
+        # make the cax invisible
+        cax.set_visible(False)
+
+    # remove axis ticks and labels
+    ax.set_xticks([])
+    ax.set_yticks([])
+
+    # turn off frame around the image
+    ax.set_frame_on(False)
+
+
+def plot_maps_across_planes(axes, map, targets,
+        power_idx=-1, plane_idxs=[0], zs=None):
+    
+    # calculate min/max across all planes that will be plotted
+    vmin = np.min(map[power_idx, :, :, plane_idxs])
+    vmax = np.max(map[power_idx, :, :, plane_idxs])
+
+    for i, (plane_idx, ax) in enumerate(zip(plane_idxs, axes)):
+        if i == 0:
+            show_colorbar = True
+        else:
+            show_colorbar = False
+        if i == len(plane_idxs)-1:
+            show_scalebar = True
+        else:
+            show_scalebar = False
+        plot_gridmap_with_scalebars(map[power_idx, :, :, plane_idx],
+            targets, ax=ax, show_scalebar=show_scalebar,
+            show_colorbar=show_colorbar, vmin=vmin, vmax=vmax)
+        
+        if zs is not None:
+            ax.set_ylabel('z = %d um' % zs[plane_idx])
+
+def create_scatterplot(true_values, estimated_values, axis=None, pad=5, x_limits=None, y_limits=None, color='blue', alpha=0.2, s=0.2):
+
+    assert len(true_values) == len(estimated_values), "True values and estimated values must have the same length."
+
+    if axis is None:
+        axis = plt.gca()
+
+    # Create a scatterplot
+    axis.scatter(true_values, estimated_values, color=color, alpha=alpha, s=s)
+
+    # Make the plot square
+    axis.set_aspect('equal', adjustable='box')
+
+
+    if x_limits is None:
+        minval = np.min(true_values)
+        maxval = np.max(true_values)
+        x_limits = [minval - pad, maxval + pad]
+    if y_limits is None:
+        minval = np.min(estimated_values)
+        maxval = np.max(estimated_values)
+        y_limits = [minval - pad, maxval + pad]
+
+    axis.set_xlim(x_limits)
+    axis.set_ylim(y_limits)
+
+    # Draw the identity line
+    axis.plot([x_limits[0] , x_limits[1] ], [y_limits[0] , y_limits[1] ], '--', label='Identity Line', color='grey')
+
+def current_colors():
+    return ['#00a651', '#7d49a5']
+
+def before_after_colors():
+    return ['#f68b1f', '#6dc8bf']
 
 # test plot_current_traces on random data
 if __name__ == '__main__':
