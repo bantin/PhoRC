@@ -78,9 +78,19 @@ if __name__ == '__main__':
     parser.add_argument('--frac_pc_cells_step', type=float, default=0.01)
     parser.add_argument('--num_sims_per_sweep', type=int, default=1)
 
+    # add stim_freq sweep parameters
+    parser.add_argument('--stim_freq_min', type=float, default=10)
+    parser.add_argument('--stim_freq_max', type=float, default=50)
+    parser.add_argument('--stim_freq_step', type=float, default=10)
+
     # demixer parameters
     parser.add_argument('--demixer_path', type=str)
     parser.add_argument('--demixer_response_length', type=int, default=900)
+
+    # add option to use network for photocurrent subtraction
+    parser.add_argument('--use_network', action='store_true')
+    parser.add_argument('--network_path', type=str, default=None)
+    parser.set_defaults(use_network=False)
 
     # caviar args
     parser = add_caviar_args(parser=parser)
@@ -91,6 +101,10 @@ if __name__ == '__main__':
 
     # load demixer
     demixer = cm.NeuralDemixer(path=args.demixer_path, device='cpu')
+
+    # load network
+    if args.use_network:
+        network = subtractr.Subtractr.load_from_checkpoint(args.network_path)
 
     ntars = int(args.ntars)
     spont_rate = float(args.spont_rate)
@@ -112,7 +126,8 @@ if __name__ == '__main__':
                                     'weights_raw',
                                     'weights_true',
                                     'weights_oracle',
-                                    'min_latency',])
+                                    'min_latency',
+                                    'use_network',])
 
     df_idx = 0
 
@@ -122,7 +137,8 @@ if __name__ == '__main__':
     # sweep over frac_pc_cells and min_latency using itertools.product
     latencies = np.arange(args.min_latency_min, args.min_latency_max + args.min_latency_step, args.min_latency_step)
     frac_pc_cells_vals = np.arange(args.frac_pc_cells_min, args.frac_pc_cells_max + args.frac_pc_cells_step, args.frac_pc_cells_step)
-    for frac_pc_cells, min_latency in itertools.product(frac_pc_cells_vals, latencies):
+    stim_freqs = np.arange(args.stim_freq_min, args.stim_freq_max + args.stim_freq_step, args.stim_freq_step)
+    for frac_pc_cells, min_latency, stim_freq in itertools.product(frac_pc_cells_vals, latencies, stim_freqs):
         for i in tqdm(range(args.num_sims_per_sweep), leave=True):
             expt_len = int(np.ceil(args.num_trials/args.stim_freq)
                            * args.sampling_freq)
@@ -155,12 +171,16 @@ if __name__ == '__main__':
                                              )
 
             # run subtraction
-            est = subtractr.low_rank.estimate_photocurrents_by_batches(
-                expt['obs_with_photocurrents'],
-                stim_start=args.stim_start_idx,
-                stim_end=args.stim_start_idx + min_latency,
-                constrain_V=args.constrain_V, batch_size=args.batch_size,
-                rank=args.rank, subtract_baselines=False)
+            if args.use_network:
+                est = network(expt['obs_with_photocurrents'])
+
+            else:
+                est = subtractr.low_rank.estimate_photocurrents_by_batches(
+                    expt['obs_with_photocurrents'],
+                    stim_start=args.stim_start_idx,
+                    stim_end=args.stim_start_idx + min_latency,
+                    constrain_V=args.constrain_V, batch_size=args.batch_size,
+                    rank=args.rank, subtract_baselines=False)
 
             # Subtract using the overlapping method
             subtracted_flat = expsim.subtract_overlapping_trials(expt['obs_with_photocurrents'], est,
@@ -198,6 +218,7 @@ if __name__ == '__main__':
             results.loc[df_idx, 'frac_pc_cells'] = frac_pc_cells
             results.loc[df_idx, 'opsin_expression'] = expt['opsin_expression']
             results.loc[df_idx, 'min_latency'] = min_latency
+            results.loc[df_idx, 'use_network'] = args.use_network
 
             # only save traces for the first trial
             if i == 0:
@@ -208,8 +229,13 @@ if __name__ == '__main__':
 
             df_idx += 1
 
-    outpath = os.path.join(args.save_path, 'frac_pc_cells_sweep_N%i_K%i_ntars%i_nreps%i_connprob%.3f_spontrate%i_stimfreq%i_numsims%i' % (
-        args.num_neurons, args.num_trials, ntars, nreps, connection_prob, spont_rate, args.stim_freq, args.num_sims_per_sweep) + token + '_%s.pkl' % (date.today().__str__()))
+    if args.use_network:
+        outname = 'subtraction_sweep_network_N%i_K%i_ntars%i_nreps%i_connprob%.3f_spontrate%i_stimfreq%i_numsims%i' % (
+            args.num_neurons, args.num_trials, ntars, nreps, connection_prob, spont_rate, args.stim_freq, args.num_sims_per_sweep) + token + '_%s.pkl' % (date.today().__str__())
+    else:
+        outname = 'subtraction_sweep_N%i_K%i_ntars%i_nreps%i_connprob%.3f_spontrate%i_stimfreq%i_numsims%i' % (
+            args.num_neurons, args.num_trials, ntars, nreps, connection_prob, spont_rate, args.stim_freq, args.num_sims_per_sweep) + token + '_%s.pkl' % (date.today().__str__())
+    outpath = os.path.join(args.save_path, outname)
 
     with bz2.BZ2File(outpath, 'wb') as savefile:
         cpickle.dump(results, savefile)
