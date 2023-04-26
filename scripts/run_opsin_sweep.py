@@ -67,7 +67,7 @@ if __name__ == '__main__':
     parser.add_argument('--pc_response_var', type=float, default=0.01)
     parser.add_argument('--sampling_freq', type=float, default=20000)
     parser.add_argument('--prior_context', type=int, default=100)
-    parser.add_argument('--response_length', type=int, default=2000)
+    parser.add_argument('--response_length', type=int, default=900)
 
     # add frac_pc_cells sweep parameters
     parser.add_argument('--frac_pc_cells_min', type=float, default=0.01)
@@ -87,7 +87,6 @@ if __name__ == '__main__':
     # add option to use network for photocurrent subtraction
     parser.add_argument('--use_network', action='store_true')
     parser.add_argument('--network_path', type=str, default=None)
-    parser.add_argument('--network_input_length', type=int, default=900)
     parser.set_defaults(use_network=False)
 
     # caviar args
@@ -170,31 +169,21 @@ if __name__ == '__main__':
 
             # run subtraction
             if args.use_network:
-                est = network(expt['obs_with_photocurrents'][:, 0:args.network_input_length])
+                est = network(expt['obs_with_photocurrents'][:, 0:args.demixer_response_length])
 
             else:
                 est = subtractr.low_rank.estimate_photocurrents_by_batches(
-                    expt['obs_with_photocurrents'],
+                    expt['obs_with_photocurrents'][:, 0:args.demixer_response_length],
                     stim_start=args.stim_start_idx,
                     stim_end=args.stim_start_idx + min_latency,
                     constrain_V=args.constrain_V, batch_size=args.batch_size,
                     rank=args.rank, subtract_baselines=False)
 
-            # Subtract using the overlapping method
-            subtracted_flat = expsim.subtract_overlapping_trials(expt['obs_with_photocurrents'], est,
-                                                          prior_context=args.prior_context,
-                                                          stim_freq=stim_freq,
-                                                          sampling_freq=args.sampling_freq,
-                                                          return_flat=True,)
-
-            # re-fold subtracted trials into matrix
-            subtracted = expsim.fold_overlapping(subtracted_flat, args.prior_context,
-                args.response_length, args.sampling_freq, stim_freq)
 
             # We use a long response length to cover the case of overlapping trials,
             # but the demixer expects a response lenght of 900 frames
             obs = expt['obs_with_photocurrents'][:, :args.demixer_response_length]
-            subtracted = subtracted[:, :args.demixer_response_length]
+            subtracted = expt['obs_with_photocurrents'][:, 0:args.demixer_response_length] - est
 
             # Run demixing and CAVIaR without subtraction
             mu_without = run_detection_pipeline(obs,
