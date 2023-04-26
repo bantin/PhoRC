@@ -69,9 +69,6 @@ if __name__ == '__main__':
     parser.add_argument('--prior_context', type=int, default=100)
     parser.add_argument('--response_length', type=int, default=2000)
 
-    # parameters to sweep stim_frequency
-    parser.add_argument('--stim_freq', type=float, default=30)
-
     # add frac_pc_cells sweep parameters
     parser.add_argument('--frac_pc_cells_min', type=float, default=0.01)
     parser.add_argument('--frac_pc_cells_max', type=float, default=0.1)
@@ -140,10 +137,10 @@ if __name__ == '__main__':
     stim_freqs = np.arange(args.stim_freq_min, args.stim_freq_max + args.stim_freq_step, args.stim_freq_step)
     for frac_pc_cells, min_latency, stim_freq in itertools.product(frac_pc_cells_vals, latencies, stim_freqs):
         for i in tqdm(range(args.num_sims_per_sweep), leave=True):
-            expt_len = int(np.ceil(args.num_trials/args.stim_freq)
+            expt_len = int(np.ceil(args.num_trials/stim_freq)
                            * args.sampling_freq)
             expt = simulate_continuous_experiment(N=args.num_neurons, H=ntars, nreps=nreps, spont_rate=spont_rate,
-                                                  connection_prob=connection_prob, stim_freq=args.stim_freq, expt_len=expt_len,
+                                                  connection_prob=connection_prob, stim_freq=stim_freq, expt_len=expt_len,
                                                   ground_truth_eval_batch_size=ground_truth_eval_batch_size,
                                                   response_length=args.response_length,
                                                   tau_delta_min=args.tau_delta_min,
@@ -165,7 +162,7 @@ if __name__ == '__main__':
                                              pc_response_var=args.pc_response_var,
                                              pc_window_len_ms=args.response_length,
                                              sampling_freq=args.sampling_freq,
-                                             stim_freq=args.stim_freq,
+                                             stim_freq=stim_freq,
                                              prior_context=args.prior_context,
                                              response_length=args.response_length,
                                              )
@@ -184,11 +181,14 @@ if __name__ == '__main__':
 
             # Subtract using the overlapping method
             subtracted_flat = expsim.subtract_overlapping_trials(expt['obs_with_photocurrents'], est,
-                                                          prior_context=args.prior_context, stim_freq=args.stim_freq, sampling_freq=args.sampling_freq,
+                                                          prior_context=args.prior_context,
+                                                          stim_freq=stim_freq,
+                                                          sampling_freq=args.sampling_freq,
                                                           return_flat=True,)
 
             # re-fold subtracted trials into matrix
-            subtracted = expsim.fold_overlapping(subtracted_flat, args.prior_context, args.response_length, args.sampling_freq, args.stim_freq)
+            subtracted = expsim.fold_overlapping(subtracted_flat, args.prior_context,
+                args.response_length, args.sampling_freq, stim_freq)
 
             # We use a long response length to cover the case of overlapping trials,
             # but the demixer expects a response lenght of 900 frames
@@ -209,7 +209,7 @@ if __name__ == '__main__':
                 expt['stim_matrix'], demixer, args)
 
             # add current results to dataframe
-            results.loc[df_idx, 'stim_freq'] = args.stim_freq
+            results.loc[df_idx, 'stim_freq'] = stim_freq
             results.loc[df_idx, 'trial'] = i
             results.loc[df_idx, 'weights_subtracted'] = mu_with
             results.loc[df_idx, 'weights_raw'] = mu_without
@@ -230,11 +230,11 @@ if __name__ == '__main__':
             df_idx += 1
 
     if args.use_network:
-        outname = 'subtraction_sweep_network_N%i_K%i_ntars%i_nreps%i_connprob%.3f_spontrate%i_stimfreq%i_numsims%i' % (
-            args.num_neurons, args.num_trials, ntars, nreps, connection_prob, spont_rate, args.stim_freq, args.num_sims_per_sweep) + token + '_%s.pkl' % (date.today().__str__())
+        outname = 'subtraction_sweep_network_N%i_K%i_ntars%i_nreps%i_connprob%.3f_spontrate%i_stimfreqmax%i_numsims%i' % (
+            args.num_neurons, args.num_trials, ntars, nreps, connection_prob, spont_rate, args.stim_freq_max, args.num_sims_per_sweep) + token + '_%s.pkl' % (date.today().__str__())
     else:
-        outname = 'subtraction_sweep_N%i_K%i_ntars%i_nreps%i_connprob%.3f_spontrate%i_stimfreq%i_numsims%i' % (
-            args.num_neurons, args.num_trials, ntars, nreps, connection_prob, spont_rate, args.stim_freq, args.num_sims_per_sweep) + token + '_%s.pkl' % (date.today().__str__())
+        outname = 'subtraction_sweep_N%i_K%i_ntars%i_nreps%i_connprob%.3f_spontrate%i_stimfreqmax%i_numsims%i' % (
+            args.num_neurons, args.num_trials, ntars, nreps, connection_prob, spont_rate, args.stim_freq_max, args.num_sims_per_sweep) + token + '_%s.pkl' % (date.today().__str__())
     outpath = os.path.join(args.save_path, outname)
 
     with bz2.BZ2File(outpath, 'wb') as savefile:
