@@ -87,6 +87,7 @@ if __name__ == '__main__':
     # add option to use network for photocurrent subtraction
     parser.add_argument('--use_network', action='store_true')
     parser.add_argument('--network_path', type=str, default=None)
+    parser.add_argument('--network_input_length', type=int, default=900)
     parser.set_defaults(use_network=False)
 
     # caviar args
@@ -169,7 +170,7 @@ if __name__ == '__main__':
 
             # run subtraction
             if args.use_network:
-                est = network(expt['obs_with_photocurrents'])
+                est = network(expt['obs_with_photocurrents'][:, 0:args.network_input_length])
 
             else:
                 est = subtractr.low_rank.estimate_photocurrents_by_batches(
