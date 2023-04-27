@@ -1,5 +1,6 @@
 import argparse
 import numpy as np
+import jax.numpy as jnp
 import subtractr
 import circuitmap as cm
 import pandas as pd
@@ -92,7 +93,7 @@ if __name__ == '__main__':
 
     parser.add_argument('--save_expts', action='store_true')
     parser.set_defaults(save_expts=False)
-    
+
 
     # caviar args
     parser = add_caviar_args(parser=parser)
@@ -160,6 +161,9 @@ if __name__ == '__main__':
                                                   gamma_beta=args.gamma_beta,
                                                   min_latency=min_latency,
                                                   noise_std=args.noise_std,)
+            # convert all jax arrays to numpy arrays inside of expt dict
+            for k, v in expt.items():
+                expt[k] = np.array(v)
 
             if args.save_expts:
                 expts.append(expt)
