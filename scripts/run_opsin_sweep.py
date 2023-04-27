@@ -90,6 +90,10 @@ if __name__ == '__main__':
     parser.add_argument('--network_path', type=str, default=None)
     parser.set_defaults(use_network=False)
 
+    parser.add_argument('--save_expts', action='store_true')
+    parser.set_defaults(save_expts=False)
+    
+
     # caviar args
     parser = add_caviar_args(parser=parser)
 
