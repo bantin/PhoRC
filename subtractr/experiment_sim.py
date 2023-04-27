@@ -68,7 +68,9 @@ def add_photocurrents_to_expt(key, expt, pc_shape_params=None,
     else:
         jittered_pc_shapes = np.array(sample_jittered_photocurrent_shapes(key, 1, **pc_full_params)[1])
         jittered_pc_shapes = np.broadcast_to(jittered_pc_shapes, (K, jittered_pc_shapes.shape[1]))
-    true_photocurrents = np.sum(stim_mat_scaled * pc_contributions, axis=0)[:,None] * jittered_pc_shapes
+    
+    pc_scales = np.maximum(np.sum(stim_mat_scaled * pc_contributions, axis=0)[:,None], 0)
+    true_photocurrents = pc_scales * jittered_pc_shapes
     
     # Add photocurrents to unrolled trace to capture inter-trial overlap
     obs_flat = unfold_to_flat(expt['obs_responses'],
