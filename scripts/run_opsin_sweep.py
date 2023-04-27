@@ -53,6 +53,7 @@ if __name__ == '__main__':
     parser.add_argument('--strong_weight_lower', type=float, default=20)
     parser.add_argument('--strong_weight_upper', type=float, default=30)
     parser.add_argument('--gamma_beta', type=float, default=25) # distribution of latencies
+    parser.add_argument('--noise_std', type=float, default=0.01) # noise in PSCs
 
     # add params to sweep over min latency
     parser.add_argument('--min_latency_min', type=int, default=60) # min latency of PSCs at max power
@@ -131,6 +132,9 @@ if __name__ == '__main__':
     # intialize random key
     key = jrand.PRNGKey(0)
 
+    # initialize list for saving experiments
+    expts = []
+
     # sweep over frac_pc_cells and min_latency using itertools.product
     latencies = np.arange(args.min_latency_min, args.min_latency_max + args.min_latency_step, args.min_latency_step)
     frac_pc_cells_vals = np.arange(args.frac_pc_cells_min, args.frac_pc_cells_max + args.frac_pc_cells_step, args.frac_pc_cells_step)
@@ -150,7 +154,11 @@ if __name__ == '__main__':
                                                   strong_weight_lower=args.strong_weight_lower,
                                                   strong_weight_upper=args.strong_weight_upper,
                                                   gamma_beta=args.gamma_beta,
-                                                  min_latency=min_latency,)
+                                                  min_latency=min_latency,
+                                                  noise_std=args.noise_std,)
+
+            if args.save_expts:
+                expts.append(expt)
 
             # add photocurrents to the simulated experiment
             key = jrand.fold_in(key, i)
@@ -226,6 +234,12 @@ if __name__ == '__main__':
         outname = 'subtraction_sweep_N%i_K%i_ntars%i_nreps%i_connprob%.3f_spontrate%i_stimfreqmax%i_numsims%i' % (
             args.num_neurons, args.num_trials, ntars, nreps, connection_prob, spont_rate, args.stim_freq_max, args.num_sims_per_sweep) + token + '_%s.pkl' % (date.today().__str__())
     outpath = os.path.join(args.save_path, outname)
-
     with bz2.BZ2File(outpath, 'wb') as savefile:
         cpickle.dump(results, savefile)
+
+    if args.save_expts:
+        exp_outname = 'expts_N%i_K%i_ntars%i_nreps%i_connprob%.3f_spontrate%i_stimfreqmax%i_numsims%i' % (
+            args.num_neurons, args.num_trials, ntars, nreps, connection_prob, spont_rate, args.stim_freq_max, args.num_sims_per_sweep) + token + '_%s.pkl' % (date.today().__str__())
+        exp_outpath = os.path.join(args.save_path, exp_outname)
+        with bz2.BZ2File(exp_outpath, 'wb') as savefile:
+            cpickle.dump(expts, savefile)
