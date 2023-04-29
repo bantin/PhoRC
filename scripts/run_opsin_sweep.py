@@ -21,6 +21,9 @@ from circuitmap.simulation import simulate_continuous_experiment
 # enable jax 64 bit mode
 jax.config.update("jax_enable_x64", True)
 
+# seed numpy
+np.random.seed(0)
+
 def run_detection_pipeline(traces, stim_mat, demixer, args):
     demixed = demixer(traces)
     N = stim_mat.shape[0]
