@@ -130,7 +130,9 @@ if __name__ == '__main__':
                                     'weights_true',
                                     'weights_oracle',
                                     'min_latency',
-                                    'use_network',])
+                                    'use_network',
+                                    'mse',
+                                    'true_photocurrents',])
 
     df_idx = 0
 
@@ -196,10 +198,14 @@ if __name__ == '__main__':
                     rank=args.rank, subtract_baselines=False)
 
 
-            # We use a long response length to cover the case of overlapping trials,
-            # but the demixer expects a response lenght of 900 frames
+            # To simplify simulations, we wont' use the overlapping subtraction method
+            # for now. 
             obs = expt['obs_with_photocurrents'][:, :args.demixer_response_length]
             subtracted = expt['obs_with_photocurrents'][:, 0:args.demixer_response_length] - est
+
+            # Compute mse between subtracted and original
+            subtracted_oracle = obs - expt['true_photocurrents'][:, 0:args.demixer_response_length]
+            mse = np.mean((subtracted - subtracted_oracle)**2)
 
             # Run demixing and CAVIaR without subtraction
             mu_without = run_detection_pipeline(obs,
@@ -225,6 +231,7 @@ if __name__ == '__main__':
             results.loc[df_idx, 'opsin_expression'] = expt['opsin_expression']
             results.loc[df_idx, 'min_latency'] = min_latency
             results.loc[df_idx, 'use_network'] = args.use_network
+            results.loc[df_idx, 'mse'] = mse
 
             # only save traces for the first trial
             if i == 0:
@@ -232,6 +239,7 @@ if __name__ == '__main__':
                 results.loc[df_idx, 'subtracted'] = subtracted
                 results.loc[df_idx, 'original'] = obs
                 results.loc[df_idx, 'ground_truth'] = expt['obs_responses'][:, :args.demixer_response_length]
+                results.loc[df_idx, 'true_photocurrents'] = expt['true_photocurrents']
 
             df_idx += 1
 
