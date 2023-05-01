@@ -181,7 +181,6 @@ if __name__ == '__main__':
                                              opsin_std=args.opsin_std,
                                              stim_dur_ms=args.stim_dur_ms,
                                              pc_response_var=args.pc_response_var,
-                                             pc_window_len_ms=args.response_length,
                                              sampling_freq=args.sampling_freq,
                                              stim_freq=stim_freq,
                                              prior_context=args.prior_context,
