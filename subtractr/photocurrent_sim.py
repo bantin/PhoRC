@@ -33,7 +33,7 @@ def _photocurrent_shape(
     O_0=0.0, R_0=1.0,
     window_len=900,
     msecs_per_sample=0.05,
-    conv_window_len=25,
+    conv_window_len=20,
 ):
 
     # In order to correctly handle stim times which start at t < 0,
@@ -86,6 +86,8 @@ def _photocurrent_shape(
     # convolve with gaussian to smooth
     x = jnp.linspace(-3, 3, conv_window_len)
     window = jsp.stats.norm.pdf(x, scale=25)
+    window = window.at[0:conv_window_len//2].set(0)
+    window = window / window.sum()
     i_photo = jsp.signal.convolve(i_photo, window, mode='same')
     i_photo /= (jnp.max(i_photo) + 1e-3)
 
@@ -623,40 +625,18 @@ def postprocess_photocurrent_experiment_batch(inputs, lp_cutoff=500, msecs_per_s
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
 
-    key = jrand.PRNGKey(1)
+    # test the sample_jittered_photocurrent_shapes function
+    key = jrand.PRNGKey(0)
+    prev_pc_shapes, curr_pc_shapes, next_pc_shapes = \
+        sample_jittered_photocurrent_shapes(key, num_traces=32, onset_jitter_ms=0.0, onset_latency_ms=0.0 )
 
-    # test monotone decay filt
-    a = jrand.uniform(key, shape=(1,20))
-    b = monotone_decay_filter(a, monotone_start=0)
+    # plot the current shapes with lines for stim onset and offset
+    fig = plt.figure(figsize=(3,3), dpi=300)
+    fig, ax = plt.subplots(1, 1)
 
-    keys = jrand.split(key, 20)
-    sampler_func = vmap(partial(sample_photocurrent_experiment, num_traces=32, 
-        onset_jitter_ms=1.0,
-        onset_latency_ms=0.2,
-        pc_shape_params=None,
-        psc_shape_params=None,
-        min_pc_scale = 0.05,
-        max_pc_scale = 10.0,
-        min_pc_fraction = 0.1,
-        max_pc_fraction = 0.95,
-        add_target_gp=True,
-        target_gp_lengthscale=25.0,
-        target_gp_scale=0.02,
-        linear_onset_frac=0.5,
-        msecs_per_sample=0.05,
-        stim_start=5.0,
-        stim_end=10.0,
-        isi_ms=30.0,
-        window_len_ms=45.0,
-        iid_noise_std_min=0.001,
-        iid_noise_std_max=0.02))
-    inputs, targets = sampler_func(keys)
-
-    num_plots = 10
-    fig, axs = plt.subplots(nrows=num_plots, ncols=2)
-
-    for i in range(num_plots):
-        axs[i,0].plot(inputs[i].T)
-        axs[i,1].plot(targets[i].T)
-
+    ax.plot(curr_pc_shapes[0].T)
+    ax.axvline(100, color='k', linestyle='--')
+    ax.axvline(200, color='k', linestyle='--')
     plt.show()
+
+
