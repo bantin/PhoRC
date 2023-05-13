@@ -7,6 +7,7 @@
 #SBATCH --mem-per-cpu=4GB       
 #SBATCH --gres=gpu:1
 #SBATCH --output=%x.%j.out
+#SBATCH --exclude=ax[11]
 #SBATCH --error=%x.%j.err
 
 echo "Running opsin sweep for low-rank subtraction"
