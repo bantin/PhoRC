@@ -154,7 +154,7 @@ def _rank_one_nmu(traces, init_factors,
 def _rank_one_nmu_decreasing(traces, init_factors,
                              update_U=True, update_V=True,
                              dec_start=0,  # index where we enforce the constraint
-                             maxiter=100, tol=1e-2, rho=1.0, gamma=1.0):
+                             maxiter=500, tol=1e-2, rho=1.0, gamma=1.0):
     """Non-negative matrix underapproximation with rank 1 using ADMM
 
     Init factors must be passed as a tuple of U and V matrices, due to the way JAX handles
@@ -535,6 +535,7 @@ def estimate_photocurrents_by_batches(traces,
         return est
 
     # sort traces by magnitude around stim
+    traces = np.maximum(0, traces)
     idxs = np.argsort(np.linalg.norm(
         traces[:, stim_start:stim_end], axis=-1))[::-1]
 
@@ -618,9 +619,10 @@ def coordinate_descent_nmu(traces,
                            rank=1,
                            update_U=True,
                            update_V=True,
-                           max_iters=5,
+                           max_iters=20,
                            tol=1e-4,
-                           gamma=0.999):
+                           gamma=0.999,
+                           rho=1e-2):
     traces = jnp.array(traces)
     def _subtract_photo(traces, U_photo, V_photo):
         traces = traces.copy()
@@ -635,7 +637,7 @@ def coordinate_descent_nmu(traces,
         if decaying_baseline:
             resid = _subtract_photo(traces, U_photo, V_photo)
             U_base, V_base, _, _ = _rank_one_nmu_decreasing(resid, (U_base, V_base),
-                                                             maxiter=500)
+                                                             maxiter=500, rho=rho, gamma=gamma)
 
         # update constant baseline if active
         if const_baseline:
@@ -707,9 +709,11 @@ def coordinate_descent_nmu(traces,
         U_photo=U_photo, V_photo=V_photo, beta=beta, fit_info=loss)
     return result
 
-@partial(jit, static_argnames=('stim_start', 'stim_end', 'dec_start', 'gamma', 'rank'), backend='cpu')
+@partial(jit, static_argnames=('stim_start', 'stim_end', 'dec_start', 'gamma', 'rank', 'coordinate_descent_iters'), backend='cpu')
 def estimate_photocurrents_nmu_coordinate_descent(traces,
-                               stim_start=100, stim_end=200, dec_start=500, gamma=0.999, rank=1):
+                               stim_start=100, stim_end=200, dec_start=500,
+                               gamma=0.999, rank=1, coordinate_descent_iters=5,
+                               nmu_max_iters=1000, rho=0.01,):
     """Estimate photocurrents using non-negative matrix underapproximation.
 
     Parameters
@@ -743,9 +747,11 @@ def estimate_photocurrents_nmu_coordinate_descent(traces,
     result = coordinate_descent_nmu(
         traces[:,0:stim_end],
         const_baseline=True,
-        decaying_baseline=True,
+        decaying_baseline=False,
         rank=rank,
-        max_iters=5,
+        max_iters=coordinate_descent_iters,
+        rho=rho,
+        gamma=gamma,
     )
 
     
@@ -755,7 +761,7 @@ def estimate_photocurrents_nmu_coordinate_descent(traces,
     _, V_pre, _, _ = _rank_one_nmu_decreasing(traces,
                         init_factors=(result.U_pre, V_dec_full_init),
                         update_U=False, update_V=True,
-                        dec_start=0, gamma=gamma)
+                        dec_start=0, gamma=gamma, rho=rho)
     # subtract away decaying baseline
     traces = traces - result.U_pre @ V_pre
     
@@ -767,7 +773,8 @@ def estimate_photocurrents_nmu_coordinate_descent(traces,
         v_photo_init = jnp.linalg.lstsq(u_curr, traces[:, stim_start:])[0]
         _, v_photo, _, _ = _rank_one_nmu_decreasing(traces[:, stim_start:],
                             init_factors=(u_curr, v_photo_init),
-                            update_U=False, update_V=True, dec_start=dec_start, gamma=gamma)
+                            update_U=False, update_V=True, dec_start=dec_start,
+                            gamma=gamma, rho=rho, maxiter=nmu_max_iters)
         V_photo = V_photo.at[r:r+1, :].set(v_photo)
 
         # subtract away photocurrent after stim start
