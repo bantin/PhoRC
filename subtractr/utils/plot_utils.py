@@ -79,6 +79,7 @@ def plot_multi_means(fig, mean_maps, depth_idxs,
         if cbar_labels is not None:
             cbar.set_label(cbar_labels[mean_idx], rotation=90, loc='top')
 
+
 def plot_spike_inference_with_waveforms(den_psc, stim, I, model_state, waveforms=None, latencies=None,
                                         spike_thresh=0.01, save=None, ymax=None, n_plots=15, num_trials=30,
                                         weights=None, col_width=10.5, row_height=0.6, order=None,
@@ -203,25 +204,27 @@ def plot_spike_inference_with_waveforms(den_psc, stim, I, model_state, waveforms
 
     return fig
 
+
 def plot_collection(ax, xs, ys, *args, **kwargs):
 
-  ax.plot(xs,ys, *args, **kwargs)
+    ax.plot(xs, ys, *args, **kwargs)
 
-  if "label" in kwargs.keys():
+    if "label" in kwargs.keys():
 
-    #remove duplicates
-    handles, labels = plt.gca().get_legend_handles_labels()
-    newLabels, newHandles = [], []
-    for handle, label in zip(handles, labels):
-      if label not in newLabels:
-        newLabels.append(label)
-        newHandles.append(handle)
+        # remove duplicates
+        handles, labels = plt.gca().get_legend_handles_labels()
+        newLabels, newHandles = [], []
+        for handle, label in zip(handles, labels):
+            if label not in newLabels:
+                newLabels.append(label)
+                newHandles.append(handle)
 
-    plt.legend(newHandles, newLabels)
+        plt.legend(newHandles, newLabels)
+
 
 def plot_current_traces(traces, msecs_per_sample=0.05,
-    time_cutoff=None, ax=None, stim_start_ms=5, stim_end_ms=10, plot_stim_lines=True,
-    scalebar=True, add_labels=False, IV_bar_length=None, **kwargs):
+                        time_cutoff=None, ax=None, stim_start_ms=5, stim_end_ms=10, plot_stim_lines=True,
+                        scalebar=True, add_labels=False, IV_bar_length=None, box_aspect=2.0/3.0, **kwargs):
     """
     Plot a collection of current traces.
     params:
@@ -242,7 +245,7 @@ def plot_current_traces(traces, msecs_per_sample=0.05,
         time_cutoff = traces.shape[1] * msecs_per_sample
 
     ax.plot(np.arange(0, time_cutoff, msecs_per_sample),
-        traces[:, :int(time_cutoff / msecs_per_sample)].T, **kwargs)
+            traces[:, :int(time_cutoff / msecs_per_sample)].T, **kwargs)
 
     if plot_stim_lines:
         ax.axvline(x=stim_start_ms, color='grey', linestyle='--')
@@ -250,17 +253,18 @@ def plot_current_traces(traces, msecs_per_sample=0.05,
 
     # add scale bars and turn off spines
     if scalebar:
-        mpe.plotting.draw_scale_bars(ax, style="paper", is_current=True, location="top", IV_bar_length=IV_bar_length)
+        mpe.plotting.draw_scale_bars(
+            ax, style="paper", is_current=True, location="top", IV_bar_length=IV_bar_length)
         mpe.plotting.hide_spines(ax)
 
-    ax.set_box_aspect(2/3)
+    ax.set_box_aspect(box_aspect)
     if add_labels:
         ax.set_xlabel('Time (ms)')
         ax.set_ylabel('Current (nA)')
 
 
 def plot_gridmap_with_scalebars(map, targets, ax=None,
-    show_scalebar=True, show_colorbar=True, scalebar_loc='lower_right', colorbar_position='right', **imshow_kwargs):
+                                show_scalebar=True, show_colorbar=True, scalebar_loc='lower right', colorbar_position='right', **imshow_kwargs):
     if ax is None:
         ax = plt.gca()
 
@@ -272,12 +276,13 @@ def plot_gridmap_with_scalebars(map, targets, ax=None,
     extent = [real_x[0]-dx, real_x[-1]+dx, real_y[0]-dy, real_y[-1]+dy]
 
     # plot the image
-    im = ax.imshow(map, origin='lower', cmap='magma', extent=extent, **imshow_kwargs)
+    im = ax.imshow(map, origin='lower', cmap='magma',
+                   extent=extent, **imshow_kwargs)
 
     # add scale bar
     if show_scalebar:
         scb = scalebar.ScaleBar(1.0, 'um', frameon=True,
-            location=scalebar_loc, box_alpha=0.0, color='white')
+                                location=scalebar_loc, box_alpha=0.0, color='white')
         ax.add_artist(scb)
 
     # create an axes on the right side of ax. The width of cax will be 5%
@@ -289,7 +294,8 @@ def plot_gridmap_with_scalebars(map, targets, ax=None,
         cbar = plt.colorbar(im, cax=cax)
         if colorbar_position == 'left':
             cbar.ax.yaxis.set_ticks_position('left')
-            cbar.ax.yaxis.set_tick_params(direction='out', labelleft=True, labelright=False)
+            cbar.ax.yaxis.set_tick_params(
+                direction='out', labelleft=True, labelright=False)
     else:
         # make the cax invisible
         cax.set_visible(False)
@@ -303,8 +309,8 @@ def plot_gridmap_with_scalebars(map, targets, ax=None,
 
 
 def plot_maps_across_planes(axes, map, targets,
-        power_idx=-1, plane_idxs=[0], zs=None):
-    
+                            power_idx=-1, plane_idxs=[0], zs=None):
+
     # calculate min/max across all planes that will be plotted
     vmin = np.min(map[power_idx, :, :, plane_idxs])
     vmax = np.max(map[power_idx, :, :, plane_idxs])
@@ -319,15 +325,17 @@ def plot_maps_across_planes(axes, map, targets,
         else:
             show_scalebar = False
         plot_gridmap_with_scalebars(map[power_idx, :, :, plane_idx],
-            targets, ax=ax, show_scalebar=show_scalebar,
-            show_colorbar=show_colorbar, vmin=vmin, vmax=vmax)
-        
+                                    targets, ax=ax, show_scalebar=show_scalebar,
+                                    show_colorbar=show_colorbar, vmin=vmin, vmax=vmax)
+
         if zs is not None:
             ax.set_ylabel('z = %d um' % zs[plane_idx])
 
+
 def create_scatterplot(true_values, estimated_values, axis=None, pad=5, x_limits=None, y_limits=None, color='blue', alpha=0.2, s=0.2):
 
-    assert len(true_values) == len(estimated_values), "True values and estimated values must have the same length."
+    assert len(true_values) == len(
+        estimated_values), "True values and estimated values must have the same length."
 
     if axis is None:
         axis = plt.gca()
@@ -337,7 +345,6 @@ def create_scatterplot(true_values, estimated_values, axis=None, pad=5, x_limits
 
     # Make the plot square
     axis.set_aspect('equal', adjustable='box')
-
 
     if x_limits is None:
         minval = np.min(true_values)
@@ -352,18 +359,69 @@ def create_scatterplot(true_values, estimated_values, axis=None, pad=5, x_limits
     axis.set_ylim(y_limits)
 
     # Draw the identity line
-    axis.plot([x_limits[0] , x_limits[1] ], [y_limits[0] , y_limits[1] ], '--', label='Identity Line', color='grey')
+    axis.plot([x_limits[0], x_limits[1]], [y_limits[0], y_limits[1]],
+              '--', label='Identity Line', color='grey')
+
 
 def current_colors():
     return ['#00a651', '#7d49a5']
 
+
 def before_after_colors():
     return ['#f68b1f', '#6dc8bf']
+
+
+def plot_connections(weights, targets, ax=None, crop=0, s=10, **kwargs):
+
+    connected_idxs = weights > 0
+
+    # set background to gray
+    if ax is None:
+        ax = plt.gcf().add_subplot(111, aspect='equal')
+
+    ax.set_box_aspect(1)
+    ax.set_facecolor((0.7, 0.7, 0.7))
+
+    # plot targeted locations as white circles
+    vmin = None
+    if 'vmin' in kwargs:
+        vmin = kwargs['vmin']
+
+    vmax = None
+    if 'vmax' in kwargs:
+        vmax = kwargs['vmax']
+
+    ax.scatter(targets[:, 0], targets[:, 1], facecolors='none',
+               edgecolors='white', linewidths=0.5, s=s)
+
+    # fill in neurons we find as connected
+    im = ax.scatter(targets[connected_idxs, 0], targets[connected_idxs, 1], c=weights[connected_idxs], cmap='magma',
+                    edgecolors='white', linewidths=0.5, vmin=vmin, vmax=vmax, s=s)
+
+    scb = scalebar.ScaleBar(1.0, 'um', frameon=False,
+                            location='lower right', box_alpha=0.0)
+    ax.add_artist(scb)
+
+    # set axis limits to include a bit of padding
+    minx = np.min(targets[:, 0])
+    maxx = np.max(targets[:, 0])
+    miny = np.min(targets[:, 1])
+    maxy = np.max(targets[:, 1])
+    minv = min(minx, miny)
+    maxv = max(maxx, maxy)
+
+    ax.set_xlim(minv + crop, maxv - crop)
+    ax.set_ylim(minv + crop, maxv - crop)
+
+    # turn off axis ticks and labels
+    ax.set_xticks([])
+    ax.set_yticks([])
+
+    return im
+
 
 # test plot_current_traces on random data
 if __name__ == '__main__':
     traces = np.random.randn(10, 900)
     plot_current_traces(traces, msecs_per_sample=0.05)
     plt.show()
-
-
