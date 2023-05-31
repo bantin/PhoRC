@@ -6,6 +6,63 @@ import seaborn as sns
 from matplotlib_scalebar import scalebar
 from mpl_toolkits.axes_grid1 import ImageGrid, make_axes_locatable
 
+def plot_gridmaps(fig, mean_maps, depth_idxs,
+    cmaps='viridis', vmin=None, vmax=None, zs=None, zlabels=None,
+    powers=None,):
+
+    # allow option to pass separate cmaps for each grid plot
+    if not isinstance(cmaps, list):
+        cmaps = len(mean_maps) * [cmaps]
+
+    # Create an outer grid
+    outer_grid = gridspec.GridSpec(1, len(mean_maps) + 1, width_ratios=[1]*len(mean_maps) + [0.05])
+    
+    # Calculate global min_val and max_val across all mean_maps if vmin and vmax are not provided
+    if vmin is None:
+        min_val = np.nanmin([np.nanmin(mean_map) for mean_map in mean_maps])
+    else:
+        min_val = vmin
+    if vmax is None:
+        max_val = np.nanmax([np.nanmax(mean_map) for mean_map in mean_maps])
+    else:
+        max_val = vmax
+
+    for mean_idx, mean_map, cmap in zip(range(len(mean_maps)), mean_maps, cmaps):
+
+        num_powers, _, _, num_planes = mean_map.shape
+        num_planes_to_plot = len(depth_idxs)
+        assert num_planes_to_plot <= num_planes
+
+        # use subgrid for each ImageGrid
+        subgrid = gridspec.GridSpecFromSubplotSpec(num_planes_to_plot, num_powers, subplot_spec=outer_grid[mean_idx], wspace=0.05, hspace=0.05)
+
+        for j in range(num_planes_to_plot * num_powers):
+            ax = plt.Subplot(fig, subgrid[j])
+            fig.add_subplot(ax)
+            
+            ax.set_xticks([])
+            ax.set_yticks([])
+            
+            row = j // num_powers
+            col = j % num_powers
+            
+            im = ax.imshow(mean_map[col, :, :, depth_idxs[row]],
+                           origin='lower', vmin=min_val, vmax=max_val, cmap=cmap)
+
+            # optionally add labels
+            if (zs is not None) and col == 0 and mean_idx == 0:
+                ax.set_ylabel('%d ' % zs[depth_idxs[row]] + r'$\mu m $')
+            elif (zlabels is not None) and col == 0 and mean_idx == 0:
+                ax.set_ylabel(zlabels[row])
+
+            # optionally add power label as white text on top of the image
+            if powers is not None and row == 0:
+                ax.annotate('%d mW' % powers[col], xy=(0.5, 1.05), xycoords='axes fraction',
+                            horizontalalignment='right', verticalalignment='top')
+
+        if mean_idx == len(mean_maps) - 1:
+            colorbar_grid = gridspec.GridSpecFromSubplotSpec(num_planes // 2, 1, subplot_spec=outer_grid[-1],)
+            cbar = plt.colorbar(im, cax=plt.subplot(colorbar_grid[0]))
 
 def plot_multi_means(fig, mean_maps, depth_idxs,
                      roi_bounds=None,
@@ -264,12 +321,16 @@ def plot_current_traces(traces, msecs_per_sample=0.05,
 
 
 def plot_gridmap_with_scalebars(map, targets, ax=None,
-                                show_scalebar=True, show_colorbar=True, scalebar_loc='lower right', colorbar_position='right', **imshow_kwargs):
+                                show_scalebar=True, show_colorbar=True,
+                                scalebar_loc='lower right',
+                                colorbar_position='right',
+                                pixel_size=1.3,
+                                **imshow_kwargs):
     if ax is None:
         ax = plt.gca()
 
-    real_x = targets[:, 0]
-    real_y = targets[:, 1]
+    real_x = np.unique(targets[:, 0])
+    real_y = np.unique(targets[:, 1])
 
     dx = (real_x[1]-real_x[0])/2.
     dy = (real_y[1]-real_y[0])/2.
@@ -281,7 +342,7 @@ def plot_gridmap_with_scalebars(map, targets, ax=None,
 
     # add scale bar
     if show_scalebar:
-        scb = scalebar.ScaleBar(1.0, 'um', frameon=True,
+        scb = scalebar.ScaleBar(1.3, 'um', frameon=True,
                                 location=scalebar_loc, box_alpha=0.0, color='white')
         ax.add_artist(scb)
 
