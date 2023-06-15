@@ -5,18 +5,21 @@ import seaborn as sns
 
 from matplotlib_scalebar import scalebar
 from mpl_toolkits.axes_grid1 import ImageGrid, make_axes_locatable
+from matplotlib import gridspec
+
 
 def plot_gridmaps(fig, mean_maps, depth_idxs,
-    cmaps='viridis', vmin=None, vmax=None, zs=None, zlabels=None,
-    powers=None,):
+                  cmaps='viridis', vmin=None, vmax=None, zs=None, zlabels=None,
+                  powers=None,):
 
     # allow option to pass separate cmaps for each grid plot
     if not isinstance(cmaps, list):
         cmaps = len(mean_maps) * [cmaps]
 
     # Create an outer grid
-    outer_grid = gridspec.GridSpec(1, len(mean_maps) + 1, width_ratios=[1]*len(mean_maps) + [0.05])
-    
+    outer_grid = gridspec.GridSpec(
+        1, len(mean_maps) + 1, width_ratios=[1]*len(mean_maps) + [0.05])
+
     # Calculate global min_val and max_val across all mean_maps if vmin and vmax are not provided
     if vmin is None:
         min_val = np.nanmin([np.nanmin(mean_map) for mean_map in mean_maps])
@@ -34,18 +37,19 @@ def plot_gridmaps(fig, mean_maps, depth_idxs,
         assert num_planes_to_plot <= num_planes
 
         # use subgrid for each ImageGrid
-        subgrid = gridspec.GridSpecFromSubplotSpec(num_planes_to_plot, num_powers, subplot_spec=outer_grid[mean_idx], wspace=0.05, hspace=0.05)
+        subgrid = gridspec.GridSpecFromSubplotSpec(
+            num_planes_to_plot, num_powers, subplot_spec=outer_grid[mean_idx], wspace=0.05, hspace=0.05)
 
         for j in range(num_planes_to_plot * num_powers):
             ax = plt.Subplot(fig, subgrid[j])
             fig.add_subplot(ax)
-            
+
             ax.set_xticks([])
             ax.set_yticks([])
-            
+
             row = j // num_powers
             col = j % num_powers
-            
+
             im = ax.imshow(mean_map[col, :, :, depth_idxs[row]],
                            origin='lower', vmin=min_val, vmax=max_val, cmap=cmap)
 
@@ -61,8 +65,10 @@ def plot_gridmaps(fig, mean_maps, depth_idxs,
                             horizontalalignment='right', verticalalignment='top')
 
         if mean_idx == len(mean_maps) - 1:
-            colorbar_grid = gridspec.GridSpecFromSubplotSpec(num_planes // 2, 1, subplot_spec=outer_grid[-1],)
+            colorbar_grid = gridspec.GridSpecFromSubplotSpec(
+                num_planes // 2, 1, subplot_spec=outer_grid[-1],)
             cbar = plt.colorbar(im, cax=plt.subplot(colorbar_grid[0]))
+
 
 def plot_multi_means(fig, mean_maps, depth_idxs,
                      roi_bounds=None,
@@ -432,35 +438,35 @@ def before_after_colors():
     return ['#f68b1f', '#6dc8bf']
 
 
-def plot_connections(weights, targets, ax=None, crop=0, s=10, **kwargs):
-
+def plot_connections(weights, targets, fig=None, ax=None, lw=0.5, crop=0, fill_alpha=1.0, s=10, pipette_pos=None, colorbar=True, **kwargs):
     connected_idxs = weights > 0
 
     # set background to gray
     if ax is None:
-        ax = plt.gcf().add_subplot(111, aspect='equal')
+        if fig is None:
+            fig = plt.figure(figsize=(5,5), dpi=300, facecolor='white')
+        ax = fig.gca()
 
     ax.set_box_aspect(1)
     ax.set_facecolor((0.7, 0.7, 0.7))
 
     # plot targeted locations as white circles
-    vmin = None
-    if 'vmin' in kwargs:
-        vmin = kwargs['vmin']
-
-    vmax = None
-    if 'vmax' in kwargs:
-        vmax = kwargs['vmax']
-
-    ax.scatter(targets[:, 0], targets[:, 1], facecolors='none',
-               edgecolors='white', linewidths=0.5, s=s)
+    ax.scatter(targets[:, 0], targets[:, 1], facecolors='none', edgecolors='white', lw=lw, s=s)
 
     # fill in neurons we find as connected
-    im = ax.scatter(targets[connected_idxs, 0], targets[connected_idxs, 1], c=weights[connected_idxs], cmap='magma',
-                    edgecolors='white', linewidths=0.5, vmin=vmin, vmax=vmax, s=s)
+    vmin = kwargs.get('vmin', None)
+    vmax = kwargs.get('vmax', None)
+    norm = plt.Normalize(np.min(weights), np.max(weights)) if vmin is None and vmax is None else None
 
-    scb = scalebar.ScaleBar(1.0, 'um', frameon=False,
-                            location='lower right', box_alpha=0.0)
+    im = ax.scatter(targets[connected_idxs, 0], targets[connected_idxs, 1], c=weights[connected_idxs], cmap='magma',
+                    edgecolors='white', linewidths=lw, vmin=vmin, vmax=vmax, s=s, alpha=fill_alpha, norm=norm)
+
+    if colorbar:
+        divider = make_axes_locatable(ax)
+        cax = divider.append_axes("right", size="5%", pad=0.05)
+        plt.colorbar(im, cax=cax)
+
+    scb = scalebar.ScaleBar(1.0, 'um', frameon=True, location='lower right', box_alpha=0.5)
     ax.add_artist(scb)
 
     # set axis limits to include a bit of padding
@@ -478,7 +484,134 @@ def plot_connections(weights, targets, ax=None, crop=0, s=10, **kwargs):
     ax.set_xticks([])
     ax.set_yticks([])
 
-    return im
+    # hide all spines
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+
+    # add pipette position
+    if pipette_pos:
+        ax.scatter(pipette_pos[0], pipette_pos[1], marker='x', color='green', s=10, linewidths=1)
+
+    return fig if fig is not None else im
+
+
+def plot_traces_in_grid(traces, axes=None, width_per_plot=1.5, height_per_plot=1.5, **plot_kwargs):
+    """
+    Plot collections of current traces in a grid.
+
+    params
+        traces: array of arrays containing traces to plot. Number of rows in the array
+            is the number of rows in the grid, and the number of columns is the number
+            of columns in the grid. Each element of the array is an N x T array.
+        axes: array of axes to plot on. If None, create new axes
+        width_per_plot: width of each plot in inches
+        height_per_plot: height of each plot in inches
+    """
+    
+    num_rows, num_cols = traces.shape[0:2]
+
+    if axes is None:
+        fig, axes = plt.subplots(num_rows, num_cols, figsize=(
+            width_per_plot * num_cols, height_per_plot * num_rows), dpi=300, facecolor='white',
+            sharey='row', sharex=False)
+        if num_rows == 1:
+            axes = axes[None, :]
+    
+    for row in range(num_rows):
+        for col in range(num_cols):
+            ax = axes[row, col]
+            plot_current_traces(traces[row, col], ax=ax,scalebar=(col == 0), **plot_kwargs)
+
+            if col > 0:
+                ax.axis('off')
+    
+    plt.subplots_adjust(wspace=0.05, hspace=0.05)
+    return axes
+
+
+def plot_summary_traces(raw, est, subtracted, stim_mat, demixed, num_to_plot=30, stim_end_idx=200, power_idxs_to_plot=None):
+    powers = np.max(stim_mat, axis=0)
+    unique_powers = np.unique(powers)
+    num_powers = len(unique_powers)
+
+    if power_idxs_to_plot is not None:
+        if len(power_idxs_to_plot) == 1:
+            unique_powers = [unique_powers[power_idxs_to_plot]]
+        else:
+            unique_powers = unique_powers[power_idxs_to_plot]
+
+    fig = plt.figure(figsize=(6, 3), dpi=300, facecolor='white')
+    gs_main = gridspec.GridSpec(num_powers, 2, width_ratios=[3, 1])
+
+    data_to_plot = [-raw, -est, -subtracted, -subtracted]
+    colors = sns.color_palette('magma', num_powers)
+    box_aspect = 0.5
+    for i, power, color in zip(range(len(unique_powers)), unique_powers, colors):
+        power_idxs = np.where(powers == power)[0]
+
+        # Plot N//2 traces with largest demixed response,
+        # and N//2 traces with largest photocurrent estimates
+        energy_est = np.sum(est[power_idxs, 0:stim_end_idx], axis=1)
+        energy_demixed = np.sum(demixed[power_idxs, :], axis=1)
+
+        idxs_to_plot_est = power_idxs[np.argsort(
+            energy_est)[::-1][0:num_to_plot//2]]
+        idxs_to_plot_demixed = power_idxs[np.argsort(
+            energy_demixed)[::-1][0:num_to_plot//2]]
+
+        idxs_to_plot = np.concatenate((idxs_to_plot_est, idxs_to_plot_demixed))
+
+        gs_left = gridspec.GridSpecFromSubplotSpec(
+            1, 3, subplot_spec=gs_main[i, 0])
+        gs_right = gridspec.GridSpecFromSubplotSpec(
+            1, 1, subplot_spec=gs_main[i, 1])
+        gs_sub = [gs_left, gs_left, gs_left, gs_right]
+
+        for j in range(4):
+            axs = plt.subplot(gs_sub[j][0, j % 3])
+            scalebar = True if j == 0 or j == 3 else False
+            plot_current_traces(
+                traces=data_to_plot[j][idxs_to_plot, :], ax=axs, time_cutoff=38, box_aspect=box_aspect, scalebar=scalebar)
+
+            if j != 3:
+                axs.set_ylim([np.min(-raw[idxs_to_plot]),
+                             np.max(-raw[idxs_to_plot])])
+            else:
+                axs.set_ylim([np.min(-subtracted[idxs_to_plot]),
+                             np.max(-subtracted[idxs_to_plot])])
+
+            axs.set_xticks([])
+            axs.set_yticks([])
+            axs.set_ylabel('')
+
+    return fig
+        
+
+def plot_before_after_spatial(mu_with, mu_without, targets, fig=None):
+    if fig is None:
+        fig = plt.figure(figsize=(5, 5), dpi=300, facecolor='white')
+    else:
+        plt.sca(fig.gca())
+
+    connected_idxs_without = np.where(mu_without > 0)[0]
+    connected_idxs_with = np.where(mu_with > 0)[0]
+
+    # set background to gray
+    ax = fig.add_subplot(111, aspect='equal')
+    ax.set_facecolor('gray')
+
+    # plot targeted locations as white circles
+    plt.scatter(targets[:, 0], targets[:, 1],
+                facecolors='none', edgecolors='white', s=50)
+
+    # fill in neurons we find as connected without subtraction
+    plt.scatter(targets[connected_idxs_without, 0], targets[connected_idxs_without, 1],
+                facecolors='blue', edgecolors='white', s=50)
+    # fill in neurons we find as connected with subtraction
+    plt.scatter(targets[connected_idxs_with, 0], targets[connected_idxs_with, 1],
+                facecolors='red', edgecolors='white', s=50)
+
+    return fig
 
 
 # test plot_current_traces on random data
