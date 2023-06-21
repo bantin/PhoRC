@@ -482,7 +482,7 @@ def estimate_photocurrents_nmu_extended_baseline(traces,
     return U_full, V_full, beta
 
 
-def estimate_photocurrents_by_batches(traces,
+def estimate(traces,
                                       rank=1, constrain_V=True, baseline=False,
                                       stim_start=100, stim_end=200, batch_size=-1,
                                       subtract_baselines=True, method='coordinate_descent',
@@ -556,9 +556,6 @@ def estimate_photocurrents_by_batches(traces,
             num_complete_batches, batch_size, traces.shape[1])
 
         print('Running photocurrent estimation with %d batches...' % num_complete_batches)
-        # take advantage of vmap to run in parallel on all batches (except the last one)
-        # ests_batched = _make_estimate_batched(folded_traces, stim_start, stim_end)
-        # print('got here')
         est[:max_index] = np.concatenate(
             [_make_estimate(x, stim_start, stim_end) for x in tqdm(folded_traces)], axis=0)
 
@@ -570,7 +567,6 @@ def estimate_photocurrents_by_batches(traces,
     est = est[reverse_idxs]
     return est
 
-# @partial(jit, static_argnames=('rank',))
 
 
 def _nonnegsvd_init(traces, rank=1):
