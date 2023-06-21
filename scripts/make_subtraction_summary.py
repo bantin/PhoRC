@@ -104,8 +104,8 @@ if __name__ == "__main__":
                 demixed_lasso_resp, results['targets'], grid_dims)
         
         # make map figure
-        maps_to_plot = [results['raw_map'], results['subtracted_map'], results['demixed_map']]
-        map_names=['raw', 'subtr.', 'demixed']
+        maps_to_plot = [results['raw_map'], results['est_map'], results['subtracted_map']]
+        map_names=['raw', 'est', 'subtracted']
 
         num_planes = results['raw_map'].shape[-1]
         fig1 = plt.figure(figsize=(4 * 3, num_planes), dpi=300, facecolor='white')

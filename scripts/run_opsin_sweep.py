@@ -85,6 +85,15 @@ if __name__ == '__main__':
     parser.add_argument('--stim_freq_max', type=float, default=50)
     parser.add_argument('--stim_freq_step', type=float, default=10)
 
+    # add stim_end_idx sweep parameters
+    parser.add_argument('--stim_end_idx_min', type=int, default=160)
+    parser.add_argument('--stim_end_idx_max', type=int, default=200)
+    parser.add_argument('--stim_end_idx_step', type=int, default=10)
+
+    # add option to automatically set stim_end_idx to match min_latency
+    parser.add_argument('--autoset_stim_end_idx', action='store_true')
+    parser.set_defaults(autoset_stim_end_idx=True)
+
     # demixer parameters
     parser.add_argument('--demixer_path', type=str)
     parser.add_argument('--demixer_response_length', type=int, default=900)
@@ -149,7 +158,14 @@ if __name__ == '__main__':
     latencies = np.arange(args.min_latency_min, args.min_latency_max + args.min_latency_step, args.min_latency_step)
     frac_pc_cells_vals = np.arange(args.frac_pc_cells_min, args.frac_pc_cells_max + args.frac_pc_cells_step, args.frac_pc_cells_step)
     stim_freqs = np.arange(args.stim_freq_min, args.stim_freq_max + args.stim_freq_step, args.stim_freq_step)
-    for frac_pc_cells, min_latency, stim_freq in itertools.product(frac_pc_cells_vals, latencies, stim_freqs):
+
+    # set stim_end_idx to match min_latency if autoset_stim_end_idx is True
+    if args.autoset_stim_end_idx:
+        args.stim_end_idx_min = args.min_latency_min
+        args.stim_end_idx_max = args.min_latency_max
+        args.stim_end_idx_step = args.min_latency_step
+    stim_end_idxs = np.arange(args.stim_end_idx_min, args.stim_end_idx_max + args.stim_end_idx_step, args.stim_end_idx_step)
+    for frac_pc_cells, min_latency, stim_freq, stim_end_idx in itertools.product(frac_pc_cells_vals, latencies, stim_freqs, stim_end_idxs):
         for i in tqdm(range(args.num_sims_per_sweep), leave=True):
             expt_len = int(np.ceil(args.num_trials/stim_freq)
                            * args.sampling_freq)
