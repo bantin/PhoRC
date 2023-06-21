@@ -1,2 +1,2 @@
-from .low_rank import estimate_photocurrents_by_batches
+from .low_rank import estimate
 from .pc_subtractr_network import Subtractr
