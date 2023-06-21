@@ -24,7 +24,6 @@ def _traverse_and_sort(sub_dict, N, idxs):
             _traverse_and_sort(sub_dict[key], N, idxs)
         elif isinstance(sub_dict[key], np.ndarray):
             if sub_dict[key].shape and sub_dict[key].shape[0] == N:
-                print('found array to sort: %s' % key)
                 sub_dict[key] = sub_dict[key][idxs]
 
 
@@ -134,7 +133,7 @@ class ComparisonResults:
 
     
 class GridComparisonResults(ComparisonResults):
-    def __init__(self, ss_path=None, ms_path=None):
+    def __init__(self, ss_path=None, ms_path=None, map_idx_start=None, map_idx_end=None):
         ss_results = {}
         ms_results = {}
         if ss_path:
@@ -142,14 +141,14 @@ class GridComparisonResults(ComparisonResults):
             ss_results['singlespot']['powers'] = np.max(ss_results['singlespot']['stim_mat'], axis=0)
             ss_results['singlespot']['targets'] = ss_results['targets']
             del ss_results['targets']
-            add_grid_results(ss_results['singlespot'])
+            add_grid_results(ss_results['singlespot'], idx_start=map_idx_start, idx_end=map_idx_end)
 
         if ms_path:
             ms_results = _load_and_sort(ms_path)
             ms_results['multispot']['powers'] = np.max(ms_results['multispot']['stim_mat'], axis=0)
             ms_results['multispot']['targets'] = ms_results['targets']
             del ms_results['targets']
-            add_grid_results(ms_results['multispot'])
+            add_grid_results(ms_results['multispot'], idx_start=map_idx_start, idx_end=map_idx_end)
 
 
         self.results = {**ss_results, **ms_results}
