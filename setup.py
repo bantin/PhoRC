@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 
 setup(
-	name='subtractr',
+	name='phorc',
 	version='0.0.1',
 	description='Photocurrent subtraction for dense neural circuit mapping',
 	author='Benjamin Antin',
