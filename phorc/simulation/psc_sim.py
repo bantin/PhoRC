@@ -1,6 +1,6 @@
 import jax.numpy as jnp
 import jax.random as jrand
-import subtractr.photocurrent_sim as photocurrent_sim
+import phorc.simulation.photocurrent_sim as photocurrent_sim
 
 import jax
 from jax import vmap, jit
@@ -14,7 +14,7 @@ psc_kernel_batched = vmap(_psc_kernel, in_axes=(0, 0, 0, None))
 @partial(jit, static_argnames=('trial_dur', 'max_samples'))
 def _sample_psc_kernel(key, trial_dur=900, tau_r_lower=10, tau_r_upper=80, tau_diff_lower=50,
                        tau_diff_upper=150, delta_lower=100, delta_upper=200, max_samples=4,
-                       n_samples_active=1, amplitude_lower=0.01, amplitude_upper=0.5):
+                       n_samples_active=1, amplitude_shape=2.0, amplitude_rate=0.1):
     """Sample PSCs with random time constants, onset times, and amplitudes."""
     keys = iter(jrand.split(key, num=4))
     tau_r_samples = jrand.uniform(
@@ -30,8 +30,9 @@ def _sample_psc_kernel(key, trial_dur=900, tau_r_lower=10, tau_r_upper=80, tau_d
         tau_r_samples, tau_d_samples, delta_samples, xeval)
 
     max_vec = jnp.max(pscs, axis=-1, keepdims=True)
-    amplitude = jrand.uniform(next(keys), minval=amplitude_lower,
-                              maxval=amplitude_upper, shape=(max_samples, 1))
+    # amplitude = jrand.uniform(next(keys), minval=amplitude_lower,
+                            #   maxval=amplitude_upper, shape=(max_samples, 1))
+    amplitude = jrand.gamma(next(keys), amplitude_shape, shape=(max_samples, 1)) * amplitude_rate
 
     # zero out samples beyond n_samples_active. This way, this function
     # always returns a constant shaped output
@@ -47,7 +48,7 @@ def _sample_pscs_single_trace(key, trial_dur=900, size=1000, training_fraction=0
                               srate=20000, tau_r_lower=10, tau_r_upper=80, tau_diff_lower=2, tau_diff_upper=150,
                               delta_lower=160, delta_upper=400, next_delta_lower=400, next_delta_upper=899,
                               prev_delta_lower=-400, prev_delta_upper=-100,
-                              amplitude_lower=0.01, amplitude_upper=0.5,
+                              amplitude_shape=2.0, amplitude_rate=0.1,
                               mode_probs=None, prev_mode_probs=None, next_mode_probs=None,
                               max_modes=4):
 
@@ -73,18 +74,18 @@ def _sample_pscs_single_trace(key, trial_dur=900, size=1000, training_fraction=0
     target = jnp.sum(_sample_psc_kernel(next(keys), trial_dur=trial_dur, tau_r_lower=tau_r_lower,
                                         tau_r_upper=tau_r_upper, tau_diff_lower=tau_diff_lower, tau_diff_upper=tau_diff_upper,
                                         delta_lower=delta_lower, delta_upper=delta_upper, n_samples_active=n_modes,
-                                        amplitude_lower=amplitude_lower, amplitude_upper=amplitude_upper), axis=0)
+                                        amplitude_shape=amplitude_shape, amplitude_rate=amplitude_rate), axis=0)
 
 
     prev_psc = jnp.sum(_sample_psc_kernel(next(keys), trial_dur=trial_dur, tau_r_lower=tau_r_lower,
                                           tau_r_upper=tau_r_upper, tau_diff_lower=tau_diff_lower, tau_diff_upper=tau_diff_upper,
                                           delta_lower=prev_delta_lower, delta_upper=prev_delta_upper, n_samples_active=n_modes_prev,
-                                          amplitude_lower=amplitude_lower, amplitude_upper=amplitude_upper), axis=0)
+                                          amplitude_shape=amplitude_shape, amplitude_rate=amplitude_rate), axis=0)
 
     next_psc = jnp.sum(_sample_psc_kernel(next(keys), trial_dur=trial_dur, tau_r_lower=tau_r_lower,
                                           tau_r_upper=tau_r_upper, tau_diff_lower=tau_diff_lower, tau_diff_upper=tau_diff_upper,
                                           delta_lower=next_delta_lower, delta_upper=next_delta_upper, n_samples_active=n_modes_next,
-                                          amplitude_lower=amplitude_lower, amplitude_upper=amplitude_upper), axis=0)
+                                          amplitude_shape=amplitude_shape, amplitude_rate=amplitude_rate), axis=0)
 
     
     inputs = prev_psc + target + next_psc

@@ -287,7 +287,7 @@ def plot_collection(ax, xs, ys, *args, **kwargs):
 
 def plot_current_traces(traces, msecs_per_sample=0.05,
                         time_cutoff=None, ax=None, stim_start_ms=5, stim_end_ms=10, plot_stim_lines=True,
-                        scalebar=True, add_labels=False, IV_bar_length=None, box_aspect=2.0/3.0, **kwargs):
+                        scalebar=True, scalebar_loc='top', add_labels=False, IV_bar_length=None, box_aspect=2.0/3.0, **kwargs):
     """
     Plot a collection of current traces.
     params:
@@ -317,7 +317,7 @@ def plot_current_traces(traces, msecs_per_sample=0.05,
     # add scale bars and turn off spines
     if scalebar:
         mpe.plotting.draw_scale_bars(
-            ax, style="paper", is_current=True, location="top", IV_bar_length=IV_bar_length)
+            ax, style="paper", is_current=True, location=scalebar_loc, IV_bar_length=IV_bar_length)
         mpe.plotting.hide_spines(ax)
 
     ax.set_box_aspect(box_aspect)

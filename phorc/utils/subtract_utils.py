@@ -1,13 +1,13 @@
 import numpy as np
 import matplotlib.pyplot as plt
-import subtractr.utils.grid_utils as util
+import phorc.utils.grid_utils as util
 
 from circuitmap import NeuralDemixer
-import subtractr.low_rank as low_rank
+import phorc.low_rank as low_rank
 
 
-def traces_tensor_to_map(tensor):
-    return np.nanmean(np.sum(tensor, axis=-1), axis=-1)
+def traces_tensor_to_map(tensor, idx_start=0, idx_end=-1):
+    return np.nanmean(np.sum(tensor[...,idx_start:idx_end], axis=-1), axis=-1)
 
 def plot_subtraction_comparison(raw_tensor, est_tensors, subtracted_tensors, demixed_tensors,
         powers, colors=['red', 'blue'], sort_by='raw', num_plots_per_power=30, z_idx=None,
@@ -199,7 +199,7 @@ def run_preprocessing_pipeline(pscs, powers, targets, stim_mat,
     )
 
 
-def add_grid_results(results):
+def add_grid_results(results, idx_start=0, idx_end=-1):
     labels = ['raw', 'est', 'subtracted', 'demixed']
     if 'raw_demixed' in results:
         labels.append('raw_demixed')
@@ -210,7 +210,7 @@ def add_grid_results(results):
             results['targets'],
             results['stim_mat'] 
         )
-        map = traces_tensor_to_map(tensor)
+        map = traces_tensor_to_map(tensor, idx_start=idx_start, idx_end=idx_end)
 
         # add tensor and map to results for 
         # convenient grid figures

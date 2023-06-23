@@ -3,7 +3,7 @@ import jax
 import jax.numpy as jnp
 import jax.random as jrand
 import jax.scipy as jsp
-import subtractr.psc_sim as psc_sim
+import phorc.simulation.psc_sim as psc_sim
 import scipy.signal as sg
 
 from jax import vmap, jit
@@ -534,8 +534,11 @@ def sample_photocurrent_experiment(
             next_delta_lower=400,
             next_delta_upper=899,
             prev_delta_upper=150,
-            amplitude_lower=0.01,
-            amplitude_upper=0.5
+            amplitude_shape=0.1,
+            amplitude_rate=0.1,
+            mode_probs=(0.6, 0.3, 0.05, 0.05),
+            prev_mode_probs=(0.9, 0.1, 0.0, 0.0),
+            next_mode_probs=(0.9, 0.1, 0.0, 0.0),
         )
 
     # Sample photocurrent waveform and scale randomly
@@ -610,7 +613,7 @@ def sample_photocurrent_experiment(
     # add GP and IID noise after normalizing
     input = input + iid_noise + gp_noise
 
-    return (input, target)
+    return (input, target, pscs, gp_noise)
 
 
 def postprocess_photocurrent_experiment_batch(inputs, lp_cutoff=500, msecs_per_sample=0.05):

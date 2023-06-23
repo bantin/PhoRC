@@ -286,9 +286,25 @@ def make_grid_waveforms(model_state, psc, powers, grid_dims):
 
 
 def estimate_spike_waveforms(lam, den_psc):
-    lr = Ridge(fit_intercept=False, alpha=1e-3)
+    lr = Ridge(fit_intercept=False, alpha=1e-3, positive=True)
     lr.fit(lam.T, den_psc)
     return lr.coef_.T
+
+def compute_waveforms_by_power(powers, raw_traces, model_state):
+    num_powers = len(np.unique(powers))
+    timesteps = raw_traces.shape[1]
+    mu = model_state['mu']
+    num_neurons = mu.shape[0]
+
+    waveforms = np.zeros((num_neurons, num_powers, timesteps))
+    connected_idxs = mu > 0
+    lam_connected = model_state['lam'][connected_idxs, :]
+    for pidx, power in enumerate(np.unique(powers)):
+        these_trials = powers == power
+        lam_curr = lam_connected[:, these_trials]
+        raw_psc_curr = raw_traces[these_trials, :]
+        waveforms[connected_idxs, pidx, :] = estimate_spike_waveforms(lam_curr, raw_psc_curr)
+    return waveforms
 
 
 def make_grid_latencies(grid_waveforms,

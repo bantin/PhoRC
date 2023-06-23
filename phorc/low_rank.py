@@ -3,7 +3,7 @@ import jax.numpy as jnp
 import numpy as np
 from jax import jit
 from functools import partial
-from subtractr.pava import pava_decreasing
+from phorc.pava import pava_decreasing
 from tqdm import tqdm
 from collections import namedtuple
 
@@ -419,74 +419,11 @@ def estimate_photocurrents_nmu(traces,
     return U_stim, V_full, beta
 
 
-@partial(jit, static_argnames=('stim_start', 'stim_end', 'rank'), backend='cpu')
-def estimate_photocurrents_nmu_extended_baseline(traces,
-                                                 stim_start=100, stim_end=200, rank=1, gamma=0.999):
-    """Estimate photocurrents using non-negative matrix underapproximation.
-
-    Parameters
-    ----------
-    traces : array-like
-        Traces to estimate photocurrents from. Shape is (n_traces, n_timepoints).
-    stim_start : int
-        Index of first timepoint of stimulus.
-    stim_end : int
-        Index of last timepoint of stimulus.
-    rank : int
-        Rank of the estimated matrix.
-
-    Returns
-    -------
-    U : array-like
-        Estimated U matrix. Shape is (n_traces, rank).
-    V : array-like
-        Estimated V matrix. Shape is (rank, n_timepoints).
-    beta : array-like
-        Estimated baseline term. Shape is (n_traces, 1).
-    """
-    # Create dummy initial factors
-    # to use SVD initialization inside _rank_one_nmu
-    U_init = jnp.zeros((traces.shape[0], rank)) * jnp.nan
-    traces = jnp.maximum(0, traces)
-    start_idx = 0
-    V_init = jnp.zeros((rank, stim_end - start_idx)) * jnp.nan
-
-    # Fit baseline along with first rank-one term
-    U_stim, V_stim, beta = _nmu(traces[:, start_idx:stim_end], (U_init, V_init),
-                                rank=rank, update_U=True, update_V=True, baseline=True, stim_start=stim_start)
-
-    # Use beta as the weights in U to fit a rank-one term
-    # to the entire trace, constraining V to be decreasing
-    U_baseline_init = beta
-    V_baseline_init = jnp.ones((1, traces.shape[1]))
-    baseline_init_factors = (U_baseline_init, V_baseline_init)
-    U_baseline, V_baseline, _ = _rank_one_nmu_decreasing(traces, baseline_init_factors,
-                                                         update_U=False, update_V=True, gamma=gamma)
-    traces = traces - U_baseline @ V_baseline
-
-    # Fit the rest of V using NMU
-    V_photo_init = jnp.linalg.lstsq(U_stim, traces[:, stim_start:])[0]
-    _, V_photo, _ = _nmu(traces[:, stim_start:], rank=rank, init_factors=(U_stim, V_photo_init),
-                         update_U=False, update_V=True, baseline=False)
-
-    # pad V with zeros to account for the time before stim_start
-    V_photo = jnp.concatenate((jnp.zeros((rank, stim_start)), V_photo), axis=1)
-
-    # Create full U and V adding the learned baseline term
-    U_full = jnp.concatenate((U_stim, U_baseline), axis=1)
-    V_full = jnp.concatenate((V_photo, V_baseline), axis=0)
-
-    # zero out beta since we already have it in U
-    beta = jnp.zeros_like(beta)
-
-    return U_full, V_full, beta
-
-
 def estimate(traces,
-                                      rank=1, constrain_V=True, baseline=False,
-                                      stim_start=100, stim_end=200, batch_size=-1,
-                                      subtract_baselines=True, method='coordinate_descent',
-                                      **kwargs):
+             rank=1, constrain_V=True, baseline=False,
+             window_start=100, window_end=200, batch_size=-1,
+             subtract_baselines=True, method='coordinate_descent',
+             **kwargs):
     """Estimate photocurrents using non-negative matrix underapproximation.
 
     Parameters
@@ -525,9 +462,9 @@ def estimate(traces,
 
     assert method in estimator_dict, f"method must be one of {list(estimator_dict.keys())}"
     estimator = estimator_dict[method]
-    def _make_estimate(pscs, stim_start, stim_end):
+    def _make_estimate(pscs, window_start, window_end):
         result = estimator(pscs, rank=rank,
-            stim_start=stim_start, stim_end=stim_end,
+            stim_start=window_start, stim_end=window_end,
             **kwargs)
         est = result.U_photo @ result.V_photo
         if subtract_baselines:
@@ -537,7 +474,7 @@ def estimate(traces,
     # sort traces by magnitude around stim
     traces = np.maximum(0, traces)
     idxs = np.argsort(np.linalg.norm(
-        traces[:, stim_start:stim_end], axis=-1))[::-1]
+        traces[:, window_start:window_end], axis=-1))[::-1]
 
     # save this so that we can return estimates in the original (unsorted) order
     reverse_idxs = np.argsort(idxs)
@@ -546,7 +483,7 @@ def estimate(traces,
     if batch_size == -1:
         print('Running photocurrent estimation with no batching...')
         est = _make_estimate(
-            traces, stim_start, stim_end
+            traces, window_start, window_end
         )
     else:
         est = np.zeros_like(traces)
@@ -557,12 +494,12 @@ def estimate(traces,
 
         print('Running photocurrent estimation with %d batches...' % num_complete_batches)
         est[:max_index] = np.concatenate(
-            [_make_estimate(x, stim_start, stim_end) for x in tqdm(folded_traces)], axis=0)
+            [_make_estimate(x, window_start, window_end) for x in tqdm(folded_traces)], axis=0)
 
         # re-run on last batch, in case the number of traces is not divisible by the batch size
         if traces.shape[0] % batch_size != 0:
             est[-batch_size:] = _make_estimate(traces[-batch_size:],
-                                               stim_start, stim_end)
+                                               window_start, window_end)
 
     est = est[reverse_idxs]
     return est

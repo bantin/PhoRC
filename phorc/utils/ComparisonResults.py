@@ -1,6 +1,6 @@
 import numpy as np
-from subtractr.utils.grid_utils import sort_results
-from subtractr.utils.subtract_utils import add_grid_results
+from phorc.utils.grid_utils import sort_results
+from phorc.utils.subtract_utils import add_grid_results
 
 def _fix_results_dict(results):
     # Due to some numpy weirdness, the results dict contains

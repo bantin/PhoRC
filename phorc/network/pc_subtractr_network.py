@@ -16,14 +16,15 @@ import jax.random as jrand
 import glob
 from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor
 from collections import namedtuple
-import subtractr.photocurrent_sim as photocurrent_sim
-import subtractr.backbones as backbones
+
+import phorc.simulation.photocurrent_sim as photocurrent_sim
+import phorc.network.backbones as backbones
+from phorc.simulation import sample_photocurrent_experiment
 
 from functools import partial
 from torch.utils.data import Dataset, DataLoader
 from argparse import ArgumentParser
 from jax import vmap
-from subtractr.photocurrent_sim import sample_photocurrent_experiment
 
 # jax.config.update('jax_platform_name', 'cpu')
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = 'false'

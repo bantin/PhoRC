@@ -1,11 +1,11 @@
 import numpy as np
-import subtractr
+import phorc
 
-import subtractr.photocurrent_sim as pcsim
+import phorc.simulation.photocurrent_sim as pcsim
 import h5py
 
 from scipy.stats import multivariate_normal
-from subtractr.photocurrent_sim import sample_jittered_photocurrent_shapes
+from phorc.simulation.photocurrent_sim import sample_jittered_photocurrent_shapes
 
 
 
