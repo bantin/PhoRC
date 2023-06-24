@@ -11,8 +11,6 @@ setup(
 		'numpy',
 		'scipy',
 		'scikit-learn',
-		'torch',
-		'pytorch-lightning',
         'h5py',
 	],
 )
