@@ -45,96 +45,6 @@ def sequential_map(vals):
     return {x: i for i, x in enumerate(uniques)}
 
 
-def sequential_map_nd(vals, axis):
-    uniques = np.unique(vals, axis=axis)
-    return {tuple(x): i for i, x in enumerate(uniques)}
-
-
-def make_stim_matrix(I, L):
-    # expect L to have shape trials x spots x 3
-    num_trials, num_spots, _ = L.shape
-
-    # Now extract unique x, y, z
-    L_flat = L.reshape(-1, 3)
-    unique_locs = np.unique(L_flat, axis=0)
-    loc_map = sequential_map_nd(L_flat, axis=0)
-    num_neurons = unique_locs.shape[0]
-
-    stim = np.zeros((num_neurons, num_trials))
-
-    # for each trial, convert the tuple x,y,z to a single liner index (from 0 to num_locs)
-    # then set that entry of the stim matrix
-    for trial in range(num_trials):
-        for spot in range(num_spots):
-            neuron_idx = loc_map[tuple(L[trial, spot, :])]
-            stim[neuron_idx, trial] = I[trial]
-
-    return stim, loc_map
-
-
-def make_psc_tensor(psc, I, L):
-    '''
-    Stack all observations into a PSC tensor of shape powers x height x width x trials x time.
-
-    If not all pixels were hit the same number of times, pad the array with nan.
-    '''
-    num_trials = L.shape[0]
-    powers = np.unique(I)
-    num_powers = len(powers)
-    timesteps = psc.shape[-1]
-
-    # First, we need to compute the maximum number of times a pixel was stimmed.
-    # If a pixel was stimmed 10x at 30mW and 10x at 50mW, we want to count these separately,
-    # so we stack powers and locations to find stims at each unique power.
-    unique_locs, counts = np.unique(np.c_[L, I], axis=0, return_counts=True)
-    max_stims = np.max(counts)
-
-    # Now extract unique x, y, z
-    xs = np.unique(L[:, 0])
-    ys = np.unique(L[:, 1])
-    zs = np.unique(L[:, 2])
-
-    # create maps to map from location in real coordinates to location in index coordinates
-    x_map = sequential_map(xs)
-    y_map = sequential_map(ys)
-    z_map = sequential_map(zs)
-    p_map = sequential_map(powers)
-
-    # Create array and fill with nan
-    psc_tensor = np.full(
-        (num_powers, len(xs), len(ys), len(zs), max_stims, timesteps),
-        fill_value=np.nan)
-    stim_inds = np.zeros((num_powers, len(xs), len(ys), len(zs)), dtype=int)
-
-    # create empty stim matrix
-    N = np.unique(L, axis=0).shape[0]
-    stim_mat = np.zeros((N, num_trials))
-
-    dims = (len(xs), len(ys), len(zs))
-    for trial in range(num_trials):
-
-        # pack psc traces into tensor by location and power
-        powerloc_idx = (p_map[I[trial]],
-                        x_map[L[trial, 0]],
-                        y_map[L[trial, 1]],
-                        z_map[L[trial, 2]],
-                        )
-
-        stim_idx = stim_inds[powerloc_idx]
-        combined_idx = (*powerloc_idx, stim_idx)
-        psc_tensor[combined_idx] = psc[trial]
-
-        # increment number of stims for a given location at a given power
-        stim_inds[powerloc_idx] += 1
-
-        # Fill in stim matrix
-        loc_idx = (x_map[L[trial, 0]], y_map[L[trial, 1]], z_map[L[trial, 2]])
-        pixel_idx = np.ravel_multi_index(loc_idx, dims)
-        stim_mat[pixel_idx, trial] = I[trial]
-
-    return psc_tensor
-
-
 def get_max_hits(I, stim):
     powers = np.unique(I)
     num_powers = len(powers)
@@ -239,14 +149,6 @@ def stack_observations_in_grid(y, I, L):
         num_stims[idx] += 1
 
     return obs, num_stims
-
-
-def make_suff_stats(y, I, L):
-    obs, num_stims = stack_observations_in_grid(y, I, L)
-    obs_mean = np.vectorize(lambda x: 0 if x == [] else np.mean(x))(obs)
-    obs_var = np.vectorize(lambda x: 0 if x == [] else np.var(x))(obs)
-
-    return obs_mean, num_stims, obs_var
 
 
 def denoise_pscs_in_batches(psc, denoiser, batch_size=4096):
