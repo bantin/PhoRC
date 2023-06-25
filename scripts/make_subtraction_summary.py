@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import matplotlib.backends.backend_pdf
 import os
 
-import subtractr.utils as utils
+import phorc.utils as utils
 
 
 if __name__ == "__main__":
