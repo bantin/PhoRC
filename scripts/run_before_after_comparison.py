@@ -9,8 +9,8 @@ import h5py
 import sys
 import json
 
-import subtractr
-import subtractr.utils as utils
+import phorc
+import phorc.utils as utils
 import os
 import argparse
 
