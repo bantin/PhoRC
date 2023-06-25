@@ -4,12 +4,13 @@
 #SBATCH --job-name=circuitmap_grids
 #SBATCH -c 8                   
 #SBATCH --time=18:00:00             
-#SBATCH --mem-per-cpu=4GB       
+#SBATCH --mem-per-cpu=8GB       
 #SBATCH --gres=gpu:a40:1
+#SBATCH --exclude=ax[11,14]
 #SBATCH --output=%x.%j.out
 #SBATCH --error=%x.%j.err
 
-echo "Denoising m.s. grids"
+echo "Running CAVIaR before/after subtraction"
 
 source ~/.bashrc
 conda activate subtraction
