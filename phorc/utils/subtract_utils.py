@@ -1,9 +1,9 @@
 import numpy as np
 import matplotlib.pyplot as plt
-import phorc.utils.grid_utils as util
+import phorc.utils.grid_utils as grid_util
 
 from circuitmap import NeuralDemixer
-import phorc.low_rank as low_rank
+import phorc
 
 
 def traces_tensor_to_map(tensor, idx_start=0, idx_end=-1):
@@ -160,19 +160,19 @@ def run_preprocessing_pipeline(pscs, powers, targets, stim_mat,
             subtractr_net = subtractr.Subtractr.load_from_checkpoint(subtractr_path)
             est = subtractr_net(pscs)
         else:
-            est = low_rank.estimate_photocurrents_by_batches(pscs, **subtraction_kwargs)
+            est = phorc.estimate(pscs, **subtraction_kwargs)
     else:
         est = np.zeros_like(pscs)
     
     # load demixer checkpoint and demix
     subtracted = pscs - est
     demixer = NeuralDemixer(path=demixer_path, device='cpu')
-    demixed = util.denoise_pscs_in_batches(subtracted, demixer)
+    demixed = grid_util.denoise_pscs_in_batches(subtracted, demixer)
 
     # If run_raw_demixed is True, run the demixer on the raw data
     # and add to results
     if run_raw_demixed:
-        raw_demixed = util.denoise_pscs_in_batches(pscs, demixer)
+        raw_demixed = grid_util.denoise_pscs_in_batches(pscs, demixer)
         return dict(
             stim_mat=stim_mat,
             powers=powers, 
@@ -204,7 +204,7 @@ def add_grid_results(results, idx_start=0, idx_end=-1):
     if 'raw_demixed' in results:
         labels.append('raw_demixed')
     for label in labels:
-        tensor = util.make_psc_tensor_multispot(
+        tensor = grid_util.make_psc_tensor_multispot(
             results[label],
             results['powers'], 
             results['targets'],
@@ -218,108 +218,3 @@ def add_grid_results(results, idx_start=0, idx_end=-1):
         results[label + '_map'] = map
 
     return results
-
-
-def run_subtraction_pipeline_multipulse(
-    pscs, powers, targets, stim, demixer_checkpoint,
-    no_op=False, num_pulses=3, **run_kwargs):
-
-    # Run subtraction on traces from all pulses at once
-    if no_op:
-        est = np.zeros_like(pscs)
-    else:
-        est = low_rank.estimate_photocurrents_baseline(pscs, powers, **run_kwargs)
-    subtracted = pscs - est
-
-    # load demixer checkpoint and demix
-    demixer = NeuralDemixer(path=demixer_checkpoint, device='cpu')
-    demixed = util.denoise_pscs_in_batches(subtracted, demixer)
-
-    # separate by pulses when creating psc tensors
-
-    raw_pscs_tensor = util.make_psc_tensor_multispot(pscs, powers, targets, stim)
-    est_pscs_tensor = util.make_psc_tensor_multispot(est, powers, targets, stim)
-    subtracted_pscs_tensor = util.make_psc_tensor_multispot(subtracted, powers, targets, stim)
-    demixed_pscs_tensor = util.make_psc_tensor_multispot(demixed, powers, targets, stim)
-
-    # make plot of spatial maps
-    mean_map = traces_tensor_to_map(raw_pscs_tensor)
-    mean_map_subtracted = traces_tensor_to_map(subtracted_pscs_tensor)
-    mean_map_demixed = traces_tensor_to_map(demixed_pscs_tensor)
-
-    return dict(
-        # return traces matrices
-        raw_matrix=pscs,
-        est_matrix=est,
-        subtracted_matrix=subtracted,
-        demixed_matrix=demixed,
-        
-        # return traces tensors
-        raw_tensor=raw_pscs_tensor,
-        est_tensor=est_pscs_tensor,
-        subtracted_tensor=subtracted_pscs_tensor,
-        demixed_tensor=demixed_pscs_tensor,
-        # return grid maps
-        raw_map=mean_map,
-        subtracted_map=mean_map_subtracted,
-        demixed_map=mean_map_demixed
-
-    )
-
-
-def make_subtraction_figs_singlespot(pscs, I, L, dataset_name, demixer_checkpoint):
-    y_raw = pscs.sum(1)
-    grid_mean, _, num_stims = util.make_suff_stats(y_raw, I, L)
-    num_powers, num_xs, num_ys, num_zs = grid_mean.shape
-
-
-    # Run subtraction on all PSCs
-    est = low_rank.estimate_photocurrents(pscs, I, separate_by_power=True)
-    subtracted = pscs - est
-
-    # load demixer checkpoint and demix
-    demixer = NeuralDemixer(path=demixer_checkpoint)
-    demixed = util.denoise_pscs_in_batches(subtracted, demixer)
-
-    # convert to tensors for easier plotting
-    raw_pscs_tensor = util.make_psc_tensor(pscs, I, L)
-    est_pscs_tensor = util.make_psc_tensor(est, I, L)
-    subtracted_pscs_tensor = util.make_psc_tensor(subtracted, I, L)
-    demixed_pscs_tensor = util.make_psc_tensor(demixed, I, L)
-
-    # make plot of spatial maps
-    mean_map = traces_tensor_to_map(raw_pscs_tensor)
-    mean_map_subtracted = traces_tensor_to_map(subtracted_pscs_tensor)
-    mean_map_demixed = traces_tensor_to_map(demixed_pscs_tensor)
-
-    fig2 = plt.figure(figsize=(6 * num_powers, num_zs), dpi=300, facecolor='white')
-
-    util.plot_multi_means(fig2,
-        [mean_map, mean_map_subtracted, mean_map_demixed], np.arange(num_zs),
-    #     map_names=['subtracted'],
-        cmaps=['magma', 'magma', 'magma'],
-        # cbar_labels=['EPSQ (nC)'],
-        # zlabels=['subtr', 'demix'],
-        map_names=['raw', 'subtr', 'demix'],
-        # vranges=[(0,5), (0,5.0), (0,5.0)],
-        powers=np.unique(I))
-
-    # # make plot of traces
-    # max_raw = np.max(pscs[:,0:500])
-    # min_raw = np.min(pscs[:,0:500])
-    # max_subtracted = np.max(subtracted[:,0:500])
-    # min_subtracted = np.min(subtracted[:,0:500])
-
-    fig3, axs = plot_subtraction_comparison(raw_pscs_tensor,
-        [est_pscs_tensor],
-        [subtracted_pscs_tensor,],
-        [demixed_pscs_tensor],
-        powers=np.unique(I),
-    # ylims=[(min_raw, max_raw,), (min_raw, max_raw),
-    # (min_subtracted, max_subtracted), (min_subtracted, max_subtracted)],
-    # z_idx=-1,
-    # power_idx=-2,
-    # override_sharey=False)
-    )
-    axs[0,0].set_ylabel('Current (nA)')
-    # plt.tight_layout()
