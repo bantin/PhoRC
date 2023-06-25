@@ -1,6 +1,5 @@
 import argparse
 from circuitmap import NeuralDemixer
-from pc_subtractr_network import Subtractr
 import h5py
 import sys
 import numpy as np
