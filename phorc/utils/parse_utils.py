@@ -61,8 +61,8 @@ def add_subtraction_args(parser=None):
 
     # arguments used for the low-rank subtraction, if the subtraction_method is
     # 'network' these arguments are ignored
-    parser.add_argument('--stim_start_idx', type=int, default=100)
-    parser.add_argument('--stim_end_idx', type=int, default=200)
+    parser.add_argument('--window_start_idx', type=int, default=100)
+    parser.add_argument('--window_end_idx', type=int, default=200)
     parser.add_argument('--rank', type=int, default=2)
     parser.add_argument('--constrain_V', action='store_true')
     parser.add_argument('--no_constrain_V', dest='constrain_V', action='store_false')

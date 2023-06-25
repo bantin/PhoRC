@@ -72,8 +72,8 @@ if __name__ == "__main__":
     results = utils.run_preprocessing_pipeline(pscs, powers, targets, stim_mat, args.demixer_path, 
         subtract_pc=args.subtract_pc, 
         subtractr_path=args.subtractr_path, 
-        stim_start=args.stim_start_idx, 
-        stim_end=args.stim_end_idx,
+        window_start=args.window_start_idx, 
+        window_end=args.window_end_idx,
         rank=args.rank,
         batch_size=args.batch_size,
         method=args.method,)
