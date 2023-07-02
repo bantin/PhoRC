@@ -1,12 +1,12 @@
 # **Pho**tocurrent **R**emoval with **C**onstraints (PhoRC)
 Computational tools for removing direct photocurrent artifacts from intracellular recordings. This library implements PhoRC, described in more detail in our preprint:
 
-> _Removing direct photocurrent artifacts in optogenetic connectivity mapping via constrained matrix factorization._ (2023) B. Antin\*, M. Sadahiro\*, M. A. Triplett, M. Gajowa, H. Adesnik, and L. Paninski
+> _Removing direct photocurrent artifacts in optogenetic connectivity mapping data via constrained matrix factorization._ (2023) B. Antin\*, M. Sadahiro\*, M. A. Triplett, M. Gajowa, H. Adesnik, and L. Paninski
 
 If you encounter bugs or issues using this library, please raise a Github issue or email ba2617@columbia.edu.
 
 # Installation
-We recommend performing installation in a fresh conda environemnt. PhoRC's main dependency is [JAX](https://github.com/google/jax). GPU support is not required. PhoRC has been tested with JAX until 0.4.0. Once JAX is installed, clone this repository and install it with pip:
+We recommend performing installation in a fresh conda environment. PhoRC's main dependency is [JAX](https://github.com/google/jax). GPU support is not required. PhoRC has been tested with JAX until 0.4.0. Once JAX is installed, clone this repository and install it with pip:
 
 ```
 git clone https://github.com/bantin/PhoRC
