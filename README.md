@@ -6,7 +6,12 @@ Computational tools for removing direct photocurrent artifacts from intracellula
 If you encounter bugs or issues using this library, please raise a Github issue or email ba2617@columbia.edu.
 
 # Installation
-This section coming soon :) 
+We recommend performing installation in a fresh conda environemnt. PhoRC's main dependency is [JAX](https://github.com/google/jax). GPU support is not required. PhoRC has been tested with JAX until 0.4.0. Once JAX is installed, clone this repository and install it with pip:
+
+```
+git clone https://github.com/bantin/PhoRC
+pip install ./phorc
+```
 
 # Low-rank based photocurrent subtraction
 `phorc.estimate` runs a matrix-factorization based photocurrent estimation routine.
