@@ -555,7 +555,7 @@ def coordinate_descent_nmu(traces,
                            max_iters=20,
                            tol=1e-4,
                            gamma=0.999,
-                           rho=1e-2):
+                           rho=1):
     traces = jnp.array(traces)
     def _subtract_photo(traces, U_photo, V_photo):
         traces = traces.copy()
