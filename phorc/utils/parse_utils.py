@@ -73,7 +73,7 @@ def add_subtraction_args(parser=None):
     parser.set_defaults(baseline=True)
     parser.add_argument('--subtract_baseline', action='store_true')
     parser.add_argument('--no_subtract_baseline', dest='subtract_baseline', action='store_false')
-    parser.set_defaults(baseline=True)
+    parser.set_defaults(subtract_baseline=True)
 
     # whether we fit an extended baseline using PAVA/OASIS
     # parser.add_argument('--extended_baseline', action='store_true')
