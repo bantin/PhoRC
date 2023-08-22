@@ -30,12 +30,12 @@ if __name__ == "__main__":
         pscs = np.array(f['pscs']).T
 
     # run phorc
-    est = phorc.estimate(np.zeros((500,900)),
+    est = phorc.estimate(pscs,
         rank=args.rank,
         batch_size=args.batch_size,
         window_start=args.window_start_idx,
         window_end=args.window_end_idx,)
-    pscs_subtracted = np.zeros((500,900)) - est
+    pscs_subtracted = pscs - est
 
     # Create string containing arguments
     # used when running PhoRC
