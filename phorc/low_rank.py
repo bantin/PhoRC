@@ -642,7 +642,8 @@ def coordinate_descent_nmu(traces,
         U_photo=U_photo, V_photo=V_photo, beta=beta, fit_info=loss)
     return result
 
-@partial(jit, static_argnames=('stim_start', 'stim_end', 'dec_start', 'gamma', 'rank', 'coordinate_descent_iters'), backend='cpu')
+@partial(jit, static_argnames=('stim_start', 'stim_end', 
+    'dec_start', 'gamma', 'rank', 'coordinate_descent_iters', 'const_baseline', 'decaying_baseline'), backend='cpu')
 def estimate_photocurrents_nmu_coordinate_descent(traces,
                                stim_start=100, stim_end=200, dec_start=500,
                                gamma=0.999, rank=1, coordinate_descent_iters=5,
