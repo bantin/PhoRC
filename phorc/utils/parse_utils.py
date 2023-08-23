@@ -75,6 +75,15 @@ def add_subtraction_args(parser=None):
     parser.add_argument('--no_subtract_baseline', dest='subtract_baseline', action='store_false')
     parser.set_defaults(subtract_baseline=True)
 
+    # For coordinate descent, add options for constant baseline and decreasing baseline
+    parser.add_argument('--const_baseline', action='store_true')
+    parser.add_argument('--no_const_baseline', dest='const_baseline', action='store_false')
+    parser.set_defaults(const_baseline=True)
+
+    parser.add_argument('--decaying_baseline', action='store_true')
+    parser.add_argument('--no_decaying_baseline', dest='decaying_baseline', action='store_false')
+    parser.set_defaults(decaying_baseline=False)
+
     # whether we fit an extended baseline using PAVA/OASIS
     # parser.add_argument('--extended_baseline', action='store_true')
     # parser.add_argument('--no_extended_baseline', action='store_false', dest='extended_baseline')

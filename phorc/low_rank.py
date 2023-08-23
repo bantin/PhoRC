@@ -646,7 +646,9 @@ def coordinate_descent_nmu(traces,
 def estimate_photocurrents_nmu_coordinate_descent(traces,
                                stim_start=100, stim_end=200, dec_start=500,
                                gamma=0.999, rank=1, coordinate_descent_iters=5,
-                               nmu_max_iters=1000, rho=0.01,):
+                               nmu_max_iters=1000, rho=0.01,
+                               const_baseline=True,
+                               decaying_baseline=False):
     """Estimate photocurrents using non-negative matrix underapproximation.
 
     Parameters
@@ -679,8 +681,8 @@ def estimate_photocurrents_nmu_coordinate_descent(traces,
     # decaying baseline, constant baseline, and photocurrent
     result = coordinate_descent_nmu(
         traces[:,0:stim_end],
-        const_baseline=True,
-        decaying_baseline=False,
+        const_baseline=const_baseline,
+        decaying_baseline=decaying_baseline,
         rank=rank,
         max_iters=coordinate_descent_iters,
         rho=rho,
