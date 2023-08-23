@@ -34,7 +34,9 @@ if __name__ == "__main__":
         rank=args.rank,
         batch_size=args.batch_size,
         window_start=args.window_start_idx,
-        window_end=args.window_end_idx,)
+        window_end=args.window_end_idx,
+        const_baseline=args.const_baseline,
+        decaying_baseline=args.decaying_baseline)
     pscs_subtracted = pscs - est
 
     # Create string containing arguments
