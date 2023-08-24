@@ -7,6 +7,9 @@ import os
 import shutil
 import json
 
+# import jax and set 64-bit precision
+import jax
+jax.config.update("jax_enable_x64", True)
 
 @hydra.main(version_base=None, config_path="conf", config_name="run_phorc_config")
 def main(cfg: DictConfig) -> None:
