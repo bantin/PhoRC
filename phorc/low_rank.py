@@ -419,10 +419,8 @@ def estimate_photocurrents_nmu(traces,
     return U_stim, V_full, beta
 
 
-def estimate(traces,
-             rank=1, constrain_V=True, baseline=False,
-             window_start=100, window_end=200, batch_size=-1,
-             subtract_baselines=True, method='coordinate_descent',
+def estimate(traces, window_start_idx=100, window_end_idx=200, batch_size=200,
+             subtract_baseline=True, method='coordinate_descent',
              **kwargs):
     """Estimate photocurrents using non-negative matrix underapproximation.
 
@@ -462,19 +460,17 @@ def estimate(traces,
 
     assert method in estimator_dict, f"method must be one of {list(estimator_dict.keys())}"
     estimator = estimator_dict[method]
-    def _make_estimate(pscs, window_start, window_end):
-        result = estimator(pscs, rank=rank,
-            stim_start=window_start, stim_end=window_end,
-            **kwargs)
+    def _make_estimate(pscs):
+        result = estimator(pscs, **kwargs)
         est = result.U_photo @ result.V_photo
-        if subtract_baselines:
+        if subtract_baseline:
             est += result.U_pre @ result.V_pre + result.beta
         return est
 
     # sort traces by magnitude around stim
     traces = np.maximum(0, traces)
     idxs = np.argsort(np.linalg.norm(
-        traces[:, window_start:window_end], axis=-1))[::-1]
+        traces[:, window_start_idx:window_end_idx], axis=-1))[::-1]
 
     # save this so that we can return estimates in the original (unsorted) order
     reverse_idxs = np.argsort(idxs)
@@ -482,9 +478,7 @@ def estimate(traces,
 
     if batch_size == -1:
         print('Running photocurrent estimation with no batching...')
-        est = _make_estimate(
-            traces, window_start, window_end
-        )
+        est = _make_estimate(traces)
     else:
         est = np.zeros_like(traces)
         num_complete_batches = traces.shape[0] // batch_size
@@ -494,12 +488,11 @@ def estimate(traces,
 
         print('Running photocurrent estimation with %d batches...' % num_complete_batches)
         est[:max_index] = np.concatenate(
-            [_make_estimate(x, window_start, window_end) for x in tqdm(folded_traces)], axis=0)
+            [_make_estimate(x) for x in tqdm(folded_traces)], axis=0)
 
         # re-run on last batch, in case the number of traces is not divisible by the batch size
         if traces.shape[0] % batch_size != 0:
-            est[-batch_size:] = _make_estimate(traces[-batch_size:],
-                                               window_start, window_end)
+            est[-batch_size:] = _make_estimate(traces[-batch_size:])
 
     est = est[reverse_idxs]
     return est
@@ -643,11 +636,18 @@ def coordinate_descent_nmu(traces,
     return result
 
 @partial(jit, static_argnames=('stim_start', 'stim_end', 
-    'dec_start', 'gamma', 'rank', 'coordinate_descent_iters', 'const_baseline', 'decaying_baseline'), backend='cpu')
+    'dec_start', 'gamma', 'rank', 'coordinate_descent_iters',
+    'const_baseline', 'decaying_baseline', 'window_start_idx',
+    'window_end_idx', 'nmu_max_iters'), backend='cpu')
 def estimate_photocurrents_nmu_coordinate_descent(traces,
-                               stim_start=100, stim_end=200, dec_start=500,
-                               gamma=0.999, rank=1, coordinate_descent_iters=5,
-                               nmu_max_iters=1000, rho=0.01,
+                               window_start_idx=100,
+                               window_end_idx=200,
+                               dec_start=500,
+                               gamma=0.999,
+                               rank=1,
+                               coordinate_descent_iters=5,
+                               nmu_max_iters=1000,
+                               rho=0.01,
                                const_baseline=True,
                                decaying_baseline=False):
     """Estimate photocurrents using non-negative matrix underapproximation.
@@ -681,7 +681,7 @@ def estimate_photocurrents_nmu_coordinate_descent(traces,
     # Fit 3 terms to the very beginning of the matrix:
     # decaying baseline, constant baseline, and photocurrent
     result = coordinate_descent_nmu(
-        traces[:,0:stim_end],
+        traces[:,0:window_end_idx],
         const_baseline=const_baseline,
         decaying_baseline=decaying_baseline,
         rank=rank,
@@ -703,21 +703,21 @@ def estimate_photocurrents_nmu_coordinate_descent(traces,
     
     # Now fit photocurrent and output estimate.
     # We force our photocurrent estimate to be decreasing after dec_start
-    V_photo = jnp.zeros((rank, traces.shape[1] - stim_start))
+    V_photo = jnp.zeros((rank, traces.shape[1] - window_start_idx))
     for r in range(rank):
         u_curr = result.U_photo[:, r:r+1]
-        v_photo_init = jnp.linalg.lstsq(u_curr, traces[:, stim_start:])[0]
-        _, v_photo, _, _ = _rank_one_nmu_decreasing(traces[:, stim_start:],
+        v_photo_init = jnp.linalg.lstsq(u_curr, traces[:, window_start_idx:])[0]
+        _, v_photo, _, _ = _rank_one_nmu_decreasing(traces[:, window_start_idx:],
                             init_factors=(u_curr, v_photo_init),
                             update_U=False, update_V=True, dec_start=dec_start,
                             gamma=gamma, rho=rho, maxiter=nmu_max_iters)
         V_photo = V_photo.at[r:r+1, :].set(v_photo)
 
         # subtract away photocurrent after stim start
-        traces = traces.at[:, stim_start:].set(traces[:, stim_start:] - u_curr @ v_photo)
+        traces = traces.at[:, window_start_idx:].set(traces[:, window_start_idx:] - u_curr @ v_photo)
         
     # pad V with zeros to account for the time before stim_start
-    V_photo = jnp.concatenate((jnp.zeros((rank, stim_start)), V_photo), axis=1)
+    V_photo = jnp.concatenate((jnp.zeros((rank, window_start_idx)), V_photo), axis=1)
 
     result = PhotocurrentEstimate(U_pre=result.U_pre, V_pre=V_pre,
         U_photo=result.U_photo, V_photo=V_photo, beta=result.beta, fit_info=result.fit_info)

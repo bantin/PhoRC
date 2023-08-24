@@ -1,0 +1,14 @@
+phorc:
+  window_start_idx: 100
+  window_end_idx: 200
+  dec_start: 500
+  gamma: 0.999
+  rank: 1
+  coordinate_descent_iters: 5
+  nmu_max_iters: 1000
+  rho: 0.1
+  const_baseline: True
+  decaying_baseline: True
+
+dataset_path: ??
+save_path: ??

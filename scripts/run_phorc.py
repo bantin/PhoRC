@@ -1,54 +1,39 @@
+import hydra
+from omegaconf import DictConfig, OmegaConf
+import phorc
 import numpy as np
 import h5py
-import sys
-import json
-import phorc
-import phorc.utils as utils
 import os
-import argparse
 import shutil
+import json
 
 
-def parse_fit_options(argseq):
-    parser = argparse.ArgumentParser(
-        description='Opsin subtraction + CAVIaR for Grid Denoising')
+@hydra.main(version_base=None, config_path="conf", config_name="run_phorc_config")
+def main(cfg: DictConfig) -> None:
 
-    parser = utils.add_subtraction_args(parser=parser)
-    parser.add_argument('--dataset_path', type=str)
-    parser.add_argument('--save_path', type=str)
-    args = parser.parse_args(argseq)
+    dset_name = os.path.basename(cfg.dataset_path).split('.')[0]
 
-    return args
-
-
-if __name__ == "__main__":
-    args = parse_fit_options(sys.argv[1:])
-    dset_name = os.path.basename(args.dataset_path).split('.')[0]
-
-    # load current data
-    with h5py.File(args.dataset_path) as f:
+    # Load current data
+    with h5py.File(cfg.dataset_path) as f:
         pscs = np.array(f['pscs']).T
 
-    # run phorc
-    est = phorc.estimate(pscs,
-        rank=args.rank,
-        batch_size=args.batch_size,
-        window_start=args.window_start_idx,
-        window_end=args.window_end_idx,
-        const_baseline=args.const_baseline,
-        decaying_baseline=args.decaying_baseline)
+    # Run phorc using **subtract_args
+    # Convert the subtraction part of the configuration to a plain dictionary
+    phorc_args = cfg["phorc"]
+    estimate_args = cfg["estimate"]
+
+    est = phorc.estimate(pscs, **estimate_args, **phorc_args)
     pscs_subtracted = pscs - est
 
-    # Create string containing arguments
-    # used when running PhoRC
-    argstr = json.dumps(args.__dict__)
+    # Create string containing arguments used when running PhoRC
+    argstr = json.dumps(OmegaConf.to_container(cfg, resolve=True))
+    print(argstr)
 
-    # save the results
-    outfile_name = os.path.join(args.save_path, dset_name + '_phorc.h5')
+    # Save the results
+    outfile_name = os.path.join(cfg.save_path, dset_name + '_phorc.h5')
 
-    # copy the input file to the output file,
-    # then add the results to the output file
-    shutil.copyfile(args.dataset_path, outfile_name)
+    # Copy the input file to the output file, then add the results to the output file
+    shutil.copyfile(cfg.dataset_path, outfile_name)
 
     with h5py.File(outfile_name, 'a') as outfile:
         if "pscs_subtracted" in outfile:
@@ -57,4 +42,5 @@ if __name__ == "__main__":
         outfile["pscs_subtracted"].attrs["args"] = argstr
 
 
-
+if __name__ == "__main__":
+    main()
