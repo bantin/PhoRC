@@ -1,0 +1,33 @@
+# Generic subtraction args --
+# these must be defined regardless of the subtraction method
+estimate:
+  window_start_idx: 100
+  window_end_idx: 200
+  batch_size: 200
+  subtract_baseline: False
+  method: "coordinate_descent"
+
+# PHORC-specific args -- 
+# these are only used if the subtraction method is PHORC
+phorc:
+  dec_start: 500
+  gamma: 0.999
+  rank: 1
+  coordinate_descent_iters: 5
+  nmu_max_iters: 1000
+  rho: 0.1
+  const_baseline: True
+  decaying_baseline: True
+
+# CAVIAR-specific args
+demixing:
+  demixer_path: ??
+
+caviar:
+  msrmp: 0.3
+  iters: 50
+  minimum_spike_count: 3
+  save_histories: False
+
+dataset_path: ??
+save_path: ??

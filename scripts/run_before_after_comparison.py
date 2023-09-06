@@ -4,51 +4,15 @@ import matplotlib.pyplot as plt
 from circuitmap import NeuralDemixer
 import circuitmap as cm
 import h5py
-
-
-import sys
-import json
-
+import os
 import phorc
 import phorc.utils as utils
-import os
-import argparse
+from hydra.core.config_store import ConfigStore
+from omegaconf import OmegaConf, DictConfig
+import hydra
 
 plt.rcParams['figure.dpi'] = 300
 
-
-def parse_fit_options(argseq):
-    parser = argparse.ArgumentParser(
-        description='Opsin subtraction + CAVIaR for Grid Denoising')
-
-    # caviar args
-    parser = utils.add_caviar_args(parser=parser)
-
-    # subtraction args
-    parser = utils.add_subtraction_args(parser=parser)
-
-    # run args
-    parser.add_argument('--xla-allocator-platform',
-                        action='store_true', default=False)
-    parser.add_argument('--dataset_path', type=str)
-    parser.add_argument('--demixer_path', type=str,
-                        default="/Users/Bantin/Documents/Columbia/Projects/2p-opto/circuit_mapping/demixers/nwd_ee_ChroME1.ckpt")
-
-    # optionally add a suffix to the saved filename, e.g to specify what arguments were used
-    parser.add_argument('--file_suffix', type=str, default="")
-
-    # whether we're working with grid or targeted data
-    parser.add_argument('--grid', action='store_true')
-    parser.add_argument('--targeted', dest='grid', action='store_false')
-    parser.set_defaults(grid=True)
-
-    args = parser.parse_args(argseq)
-
-    if args.xla_allocator_platform:
-        print('Setting XLA_PYTHON_CLIENT_ALLOCATOR to PLATFORM')
-        os.environ['XLA_PYTHON_CLIENT_ALLOCATOR'] = 'platform'
-
-    return args
 
 
 def split_results_dict(results):
@@ -64,10 +28,7 @@ def split_results_dict(results):
     -------
     results : dict
         Dictionary of results from running the preprocessing pipeline.
-        Contains the keys: stim_mat_single, pscs_single, demixed_single,
-        subtracted_single, est_single, raw_single, raw_demixed_single and
-        stim_mat_multi, pscs_multi, demixed_multi, subtracted_multi, est_multi,
-        raw_multi, raw_demixed_multi
+        Contains the keys: targets, singlespot, multispot
     """
     stim_mat, raw, demixed, subtracted, est, raw_demixed = results['stim_mat'], results['raw'], results[
         'demixed'], results['subtracted'], results['est'], results['raw_demixed']
@@ -75,8 +36,12 @@ def split_results_dict(results):
     unique_target_counts = np.unique(np.sum(stim_mat > 0, axis=0))
     max_target_count = unique_target_counts[-1]
     min_target_count = unique_target_counts[0]
-    
+
     results_new = {}
+
+    # get indices for singlespot and multispot trials
+    singlespot_idxs = np.sum(stim_mat > 0, axis=0) == min_target_count
+    multispot_idxs = np.sum(stim_mat > 0, axis=0) == max_target_count
 
     # fill in singlespot results
     if min_target_count == 1:
@@ -100,16 +65,44 @@ def split_results_dict(results):
         results_new['multispot']['raw'] = raw[these_idxs]
         results_new['multispot']['raw_demixed'] = raw_demixed[these_idxs]
 
-    results_new['targets'] = targets
     return results_new
 
+def save_dicts_to_hdf5(hdf5_filename, mode='a', **dicts):
+    """
+    Save multiple dictionaries containing numpy arrays to an HDF5 file.
 
+    Parameters:
+    - hdf5_filename: name of the HDF5 file to save to.
+    - dicts: one or more dictionaries with string keys and numpy array values.
+    """
+    with h5py.File(hdf5_filename, mode) as f:
+        for dict_name, dictionary in dicts.items():
+            if dict_name in f:
+                del f[dict_name]
+            grp = f.create_group(dict_name)
+            for key, value in dictionary.items():
+                if isinstance(value, np.ndarray):
+                    # Check if the dtype is "object" and skip if it is
+                    if value.dtype == 'object':
+                        print(f"Warning: {key} in {dict_name} has dtype 'object'. Skipping...")
+                        continue
+                    if key in grp:
+                        del grp[key]
+                    grp.create_dataset(key, data=value)
+                else:
+                    print(f"Warning: {key} in {dict_name} is not a numpy array. Skipping...")
 
-if __name__ == "__main__":
-    args = parse_fit_options(sys.argv[1:])
-    dset_name = os.path.basename(args.dataset_path).split('.')[0]
+@hydra.main(version_base=None, config_path="conf", config_name="before_after_config")
+def main(cfg: DictConfig):
 
-    with h5py.File(args.dataset_path) as f:
+    # extract arguments by group
+    estimate_args = cfg["estimate"]
+    phorc_args = cfg["phorc"]
+    caviar_args = cfg["caviar"]
+    
+    dset_name = os.path.basename(cfg.dataset_path).split('.')[0]
+
+    with h5py.File(cfg.dataset_path) as f:
         pscs = np.array(f['pscs']).T
         stim_mat = np.array(f['stimulus_matrix']).T
         targets = np.array(f['targets']).T
@@ -124,12 +117,8 @@ if __name__ == "__main__":
     # Run the preprocessing pipeline creating demixed data both
     # with and without the subtraction step.
     results = utils.run_preprocessing_pipeline(
-        pscs, powers, targets, stim_mat, args.demixer_path,
-        subtractr_path=args.subtractr_path,
-        subtract_pc=True,
-        run_raw_demixed=True,
-        rank=args.rank,
-        batch_size=args.batch_size,
+        pscs, powers, targets, stim_mat, cfg.demixing.demixer_path,
+        estimate_args, phorc_args, run_raw_demixed=True,
     )
 
     # split the results dict into single and multi target count groups
@@ -147,17 +136,16 @@ if __name__ == "__main__":
             model.fit(pscs_curr,
                 stim_mat_curr,
                 method='caviar',
-                fit_options={
-                    'msrmp': args.msrmp,
-                    'iters': args.iters,
-                    'save_histories': args.save_histories,
-                    'minimum_spike_count': args.minimum_spike_count}
+                fit_options = caviar_args,
             )
             results[target_count_label]['model_state_' + output_label] = model.state
 
 
 
     # save args used to get the result
-    argstr = json.dumps(args.__dict__)
-    outpath = dset_name + '_' + args.file_suffix + '_results.npz'
+    outpath = os.path.join(cfg.save_path, dset_name + '_before_after_comparison.npz')
+    argstr = OmegaConf.to_yaml(cfg)
     np.savez_compressed(outpath, **results, args=argstr)
+
+if __name__ == '__main__':
+    main()

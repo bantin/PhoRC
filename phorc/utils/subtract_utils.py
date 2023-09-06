@@ -152,17 +152,10 @@ def plot_subtraction_by_power(pscs, ests, subtracted, demixed, powers,
 
 
 def run_preprocessing_pipeline(pscs, powers, targets, stim_mat,
-        demixer_path, subtractr_path=None, subtract_pc=False,
-        run_raw_demixed=False,
-        **subtraction_kwargs):
-    if subtract_pc:
-        if subtractr_path:
-            subtractr_net = subtractr.Subtractr.load_from_checkpoint(subtractr_path)
-            est = subtractr_net(pscs)
-        else:
-            est = phorc.estimate(pscs, **subtraction_kwargs)
-    else:
-        est = np.zeros_like(pscs)
+        demixer_path, estimate_args, subtraction_args, run_raw_demixed=False):
+
+    # run phorc estimate
+    est = phorc.estimate(pscs, **estimate_args, **subtraction_args)
     
     # load demixer checkpoint and demix
     subtracted = pscs - est
