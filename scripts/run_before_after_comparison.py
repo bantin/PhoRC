@@ -44,6 +44,7 @@ def split_results_dict(results):
     multispot_idxs = np.sum(stim_mat > 0, axis=0) == max_target_count
 
     # fill in singlespot results
+    results_new['targets'] = targets
     if min_target_count == 1:
         results_new['singlespot'] = {}
         these_idxs = np.sum(stim_mat > 0, axis=0) == min_target_count
