@@ -28,6 +28,8 @@ caviar:
   iters: 50
   minimum_spike_count: 3
   save_histories: False
+  tol: 0.005
+  fn_scan: True
 
 dataset_path: ??
 save_path: ??
