@@ -152,44 +152,40 @@ def plot_subtraction_by_power(pscs, ests, subtracted, demixed, powers,
 
 
 def run_preprocessing_pipeline(pscs, powers, targets, stim_mat,
-        demixer_path, estimate_args, subtraction_args, run_raw_demixed=False):
+        demixer_path, estimate_args, subtraction_args,
+        phorc_restrict_region=None,
+        phorc_restrict_microns=30,
+        electrode_pos=None):
+
+    # restrict to a region if specified
+    if phorc_restrict_region:
+        assert electrode_pos is not None, "Must provide electrode pos to restrict region"
+        assert np.max(np.sum(stim_mat > 0, axis=0)) == 1, "Must be singlespot data to restrict region"
+
+        target_dists = np.linalg.norm(targets[:, 0:2] - electrode_pos, axis=1)
+
+        # stim_mat is ntargets x ntrials, with positive value if stim was delivered
+        # to that target on that trial. We want to get the index of each target that
+        # was stimulated on each trial. 
+        stim_idxs = np.argmax(stim_mat > 0, axis=0)
+        stim_dists = target_dists[stim_idxs]
+        close_trials = stim_dists < phorc_restrict_microns
+
+    else:
+        close_trials = np.ones(pscs.shape[0], dtype=bool) # run phorc on full dataset
 
     # run phorc estimate
-    est = phorc.estimate(pscs, **estimate_args, **subtraction_args)
+    est = np.zeros_like(pscs)
+    est[close_trials] = phorc.estimate(pscs[close_trials], **estimate_args, **subtraction_args)
     
     # load demixer checkpoint and demix
-    subtracted = pscs - est
+    subtracted = pscs
+    subtracted[close_trials] = pscs[close_trials] - est[close_trials]
     demixer = NeuralDemixer(path=demixer_path, device='cpu')
     demixed = grid_util.denoise_pscs_in_batches(subtracted, demixer)
+    raw_demixed = grid_util.denoise_pscs_in_batches(pscs, demixer)
 
-    # If run_raw_demixed is True, run the demixer on the raw data
-    # and add to results
-    if run_raw_demixed:
-        raw_demixed = grid_util.denoise_pscs_in_batches(pscs, demixer)
-        return dict(
-            stim_mat=stim_mat,
-            powers=powers, 
-            targets=targets,
-
-            # return traces matrices
-            raw=pscs,
-            est=est,
-            subtracted=subtracted,
-            demixed=demixed,
-            raw_demixed=raw_demixed,
-        )
-
-    return dict(
-        stim_mat=stim_mat,
-        powers=powers, 
-        targets=targets,
-
-        # return traces matrices
-        raw=pscs,
-        est=est,
-        subtracted=subtracted,
-        demixed=demixed,
-    )
+    return est, subtracted, demixed, raw_demixed
 
 
 def add_grid_results(results, idx_start=0, idx_end=-1):

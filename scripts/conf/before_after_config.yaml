@@ -31,5 +31,7 @@ caviar:
   tol: 0.005
   fn_scan: True
 
+phorc_restrict_region: False
+phorc_restrict_microns: 30
 dataset_path: ??
 save_path: ??

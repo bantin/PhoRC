@@ -30,18 +30,13 @@ def split_results_dict(results):
         Dictionary of results from running the preprocessing pipeline.
         Contains the keys: targets, singlespot, multispot
     """
-    stim_mat, raw, demixed, subtracted, est, raw_demixed = results['stim_mat'], results['raw'], results[
-        'demixed'], results['subtracted'], results['est'], results['raw_demixed']
-    targets = results['targets']
+    stim_mat, targets, powers, pscs, electrode_pos = \
+        results['stim_mat'], results['targets'], results['powers'], results['pscs'], results['electrode_pos']
     unique_target_counts = np.unique(np.sum(stim_mat > 0, axis=0))
     max_target_count = unique_target_counts[-1]
     min_target_count = unique_target_counts[0]
 
     results_new = {}
-
-    # get indices for singlespot and multispot trials
-    singlespot_idxs = np.sum(stim_mat > 0, axis=0) == min_target_count
-    multispot_idxs = np.sum(stim_mat > 0, axis=0) == max_target_count
 
     # fill in singlespot results
     results_new['targets'] = targets
@@ -49,22 +44,21 @@ def split_results_dict(results):
         results_new['singlespot'] = {}
         these_idxs = np.sum(stim_mat > 0, axis=0) == min_target_count
         results_new['singlespot']['stim_mat'] = stim_mat[:, these_idxs]
-        results_new['singlespot']['demixed'] = demixed[these_idxs]
-        results_new['singlespot']['subtracted'] = subtracted[these_idxs]
-        results_new['singlespot']['est'] = est[these_idxs]
-        results_new['singlespot']['raw'] = raw[these_idxs]
-        results_new['singlespot']['raw_demixed'] = raw_demixed[these_idxs]
+        results_new['singlespot']['pscs'] = pscs[these_idxs]
+        results_new['singlespot']['powers'] = powers[these_idxs]
+        results_new['singlespot']['electrode_pos'] = electrode_pos
+        results_new['singlespot']['targets'] = targets
+
 
     # fill in multispot results if available
     if max_target_count > 1:
         results_new['multispot'] = {}
         these_idxs = np.sum(stim_mat > 0, axis=0) == max_target_count
         results_new['multispot']['stim_mat'] = stim_mat[:, these_idxs]
-        results_new['multispot']['demixed'] = demixed[these_idxs]
-        results_new['multispot']['subtracted'] = subtracted[these_idxs]
-        results_new['multispot']['est'] = est[these_idxs]
-        results_new['multispot']['raw'] = raw[these_idxs]
-        results_new['multispot']['raw_demixed'] = raw_demixed[these_idxs]
+        results_new['multispot']['pscs'] = pscs[these_idxs]
+        results_new['multispot']['powers'] = powers[these_idxs]
+        results_new['multispot']['electrode_pos'] = electrode_pos
+        results_new['multispot']['targets'] = targets
 
     return results_new
 
@@ -108,6 +102,7 @@ def main(cfg: DictConfig):
         stim_mat = np.array(f['stimulus_matrix']).T
         targets = np.array(f['targets']).T
         powers = np.max(stim_mat, axis=0)
+        electrode_pos = np.squeeze(np.array(f['electrode_tip_position']))
 
     # get rid of any trials where we didn't actually stim
     good_idxs = (powers > 0)
@@ -115,18 +110,43 @@ def main(cfg: DictConfig):
     stim_mat = stim_mat[:, good_idxs]
     powers = powers[good_idxs]
 
-    # Run the preprocessing pipeline creating demixed data both
-    # with and without the subtraction step.
-    results = utils.run_preprocessing_pipeline(
-        pscs, powers, targets, stim_mat, cfg.demixing.demixer_path,
-        estimate_args, phorc_args, run_raw_demixed=True,
-    )
+    # make results dict split by singlespot and multispot
+    results = {
+        'stim_mat': stim_mat,
+        'targets': targets,
+        'powers': powers,
+        'pscs': pscs,
+        'electrode_pos': electrode_pos,
+    }
+    split_results = split_results_dict(results)
 
     # split the results dict into single and multi target count groups
     results = split_results_dict(results)
     for target_count_label in ['singlespot', 'multispot']:
         if target_count_label not in results:
             continue
+
+        # get the results for this target count
+        pscs = results[target_count_label]['pscs']
+        powers = results[target_count_label]['powers']
+        targets = results[target_count_label]['targets']
+        stim_mat = results[target_count_label]['stim_mat']
+        electrode_pos = results[target_count_label]['electrode_pos']
+
+        # Run the preprocessing pipeline creating demixed data both
+        # with and without the subtraction step.
+        est, subtracted, demixed, raw_demixed  = utils.run_preprocessing_pipeline(
+            pscs, powers, targets, stim_mat, cfg.demixing.demixer_path,
+            estimate_args, phorc_args,
+            phorc_restrict_region=cfg.phorc_restrict_region & (target_count_label == 'singlespot'),
+            phorc_restrict_microns=cfg.phorc_restrict_microns,
+            electrode_pos=electrode_pos,
+        )
+        results[target_count_label]['est'] = est
+        results[target_count_label]['subtracted'] = subtracted
+        results[target_count_label]['demixed'] = demixed
+        results[target_count_label]['raw_demixed'] = raw_demixed
+
         for psc_label, output_label in zip(['demixed', 'raw_demixed'], ['subtraction_on', 'subtraction_off']):
 
             print('Running caviar with %s' % output_label)
