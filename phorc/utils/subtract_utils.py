@@ -179,7 +179,7 @@ def run_preprocessing_pipeline(pscs, powers, targets, stim_mat,
     est[close_trials] = phorc.estimate(pscs[close_trials], **estimate_args, **subtraction_args)
     
     # load demixer checkpoint and demix
-    subtracted = pscs
+    subtracted = np.copy(pscs)
     subtracted[close_trials] = pscs[close_trials] - est[close_trials]
     demixer = NeuralDemixer(path=demixer_path, device='cpu')
     demixed = grid_util.denoise_pscs_in_batches(subtracted, demixer)
