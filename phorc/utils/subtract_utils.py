@@ -174,9 +174,10 @@ def run_preprocessing_pipeline(pscs, powers, targets, stim_mat,
     else:
         close_trials = np.ones(pscs.shape[0], dtype=bool) # run phorc on full dataset
 
-    # run phorc estimate
+    # run phorc estimate. If there are no close trials, just return zeros
     est = np.zeros_like(pscs)
-    est[close_trials] = phorc.estimate(pscs[close_trials], **estimate_args, **subtraction_args)
+    if sum(close_trials) > 0: 
+        est[close_trials] = phorc.estimate(pscs[close_trials], **estimate_args, **subtraction_args)
     
     # load demixer checkpoint and demix
     subtracted = np.copy(pscs)
