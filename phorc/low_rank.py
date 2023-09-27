@@ -476,7 +476,7 @@ def estimate(traces, window_start_idx=100, window_end_idx=200, batch_size=200,
     reverse_idxs = np.argsort(idxs)
     traces = traces[idxs]
 
-    if batch_size == -1:
+    if batch_size == -1 or traces.shape[0] <= batch_size:
         print('Running photocurrent estimation with no batching...')
         est = _make_estimate(traces)
     else:
