@@ -208,11 +208,11 @@ if __name__ == '__main__':
                 est = network(expt['obs_with_photocurrents'][:, 0:args.demixer_response_length])
 
             else:
-                est = phorc.low_rank.estimate_photocurrents_by_batches(
+                est = phorc.estimate(
                     expt['obs_with_photocurrents'][:, 0:args.demixer_response_length],
-                    stim_start=args.stim_start_idx,
-                    stim_end=args.stim_start_idx + min_latency,
-                    constrain_V=args.constrain_V, batch_size=args.batch_size,
+                    window_start_idx=args.window_start_idx,
+                    window_end_idx=args.window_end_idx,
+                    batch_size=args.batch_size,
                     rank=args.rank, subtract_baselines=False)
 
 
