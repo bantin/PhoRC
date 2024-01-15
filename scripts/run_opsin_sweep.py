@@ -212,7 +212,7 @@ if __name__ == '__main__':
                     expt['obs_with_photocurrents'][:, 0:args.demixer_response_length],
                     window_start_idx=args.window_start_idx,
                     window_end_idx=args.window_end_idx,
-                    constrain_V=args.constrain_V, batch_size=args.batch_size,
+                    batch_size=args.batch_size,
                     rank=args.rank, subtract_baselines=False)
 
 
