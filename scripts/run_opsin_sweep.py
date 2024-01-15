@@ -1,7 +1,7 @@
 import argparse
 import numpy as np
 import jax.numpy as jnp
-import subtractr
+import phorc
 import circuitmap as cm
 import pandas as pd
 import _pickle as cpickle
@@ -14,8 +14,8 @@ import itertools
 from datetime import date
 from tqdm import tqdm
 
-import subtractr.experiment_sim as expsim
-from subtractr.utils import add_subtraction_args, add_caviar_args
+import phorc.experiment_sim as expsim
+from phorc.utils import add_subtraction_args, add_caviar_args
 from circuitmap.simulation import simulate_continuous_experiment
 
 # enable jax 64 bit mode
@@ -119,7 +119,7 @@ if __name__ == '__main__':
 
     # load network
     if args.use_network:
-        network = subtractr.Subtractr.load_from_checkpoint(args.network_path)
+        network = phorc.phorc.load_from_checkpoint(args.network_path)
 
     ntars = int(args.ntars)
     spont_rate = float(args.spont_rate)
@@ -208,7 +208,7 @@ if __name__ == '__main__':
                 est = network(expt['obs_with_photocurrents'][:, 0:args.demixer_response_length])
 
             else:
-                est = subtractr.low_rank.estimate_photocurrents_by_batches(
+                est = phorc.low_rank.estimate_photocurrents_by_batches(
                     expt['obs_with_photocurrents'][:, 0:args.demixer_response_length],
                     stim_start=args.stim_start_idx,
                     stim_end=args.stim_start_idx + min_latency,
