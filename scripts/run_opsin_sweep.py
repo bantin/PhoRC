@@ -213,7 +213,7 @@ if __name__ == '__main__':
                     window_start_idx=args.window_start_idx,
                     window_end_idx=args.window_end_idx,
                     batch_size=args.batch_size,
-                    rank=args.rank, subtract_baselines=False)
+                    rank=args.rank, subtract_baseline=True)
 
 
             # To simplify simulations, we wont' use the overlapping subtraction method
