@@ -14,7 +14,7 @@ import itertools
 from datetime import date
 from tqdm import tqdm
 
-import phorc.experiment_sim as expsim
+from phorc.simulation import experiment_sim as expsim
 from phorc.utils import add_subtraction_args, add_caviar_args
 from circuitmap.simulation import simulate_continuous_experiment
 
